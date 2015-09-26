@@ -19,66 +19,35 @@
 */
 
 //-Wl,-subsystem,windows
-// _IRR_WINDOWS_ doesn't work until you include irrlicht.h,
-// after which further inclusions of windows.h break everything.
-// I've replaced it with my own WINSTINKS
-// To this effect, just add -DWINSTINKS to the compiler flags when compiling under Windoze,
-// and you'll be fine.
-#ifdef WINSTINKS
-#include <windows.h>
-#endif
 
 #include "main.h"
 #include "pathCreator.h"
 
 f32 then, delta;
 
-
-#ifdef WINSTINKS
-
-INT WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, \
-	    LPSTR lpCmdLine, INT nCmdShow)
-{
-
-#else
-int main(int argc, char **argv)
-{
-
-#endif
-
-	//Ray.init(OGL, 800,600, false, false, false);
-	dimension2d<u32> res;
-	res = getScreenResolution();
-
-	//Ray.init(OGL, res.Width,res.Height, true, false, false);
-
-	/* initialize window */
-    //irrlicht=createDevice(driver, dimension2d<u32>(w,h), 32, fs, shadows, false, &rcv);
-
-	SIrrlichtCreationParameters params;
-	params.AntiAlias = 4;
-	params.Bits = 32;
-	params.DriverType = EDT_OPENGL;
-	params.EventReceiver = &rcv;
-	params.Fullscreen = true;
-	params.WindowSize = res;
-	params.Stencilbuffer = false;
-	params.WindowSize = res;
-
-	#ifdef _IRR_WINDOWS_
-	//#include <windows.h>
-
-		if(__argc > 2)
-		{
-			if(strcmp(__argv[1], "/p") == 0)
-				params.WindowId = reinterpret_cast<void*>(atoi(__argv[2]));
-		}
-
-	#endif
-
-	irrlicht = createDeviceEx(params);
+wchar_t* gibson_version = L"The Gibson version 15";
+char* loading_image = "loading.png";
 
 
+int main(int argc, char **argv){
+
+    //Ray.init(OGL, 800,600, false, false, false);
+    //Ray.init(OGL, res.Width, res.Height, true, false, false);
+
+    dimension2d<u32> res;
+    res = getScreenResolution();
+
+    SIrrlichtCreationParameters params;
+    params.AntiAlias = 4;
+    params.Bits = 32;
+    params.DriverType = EDT_OPENGL;
+    params.EventReceiver = &rcv;
+    params.Fullscreen = true;
+    params.WindowSize = res;
+    params.Stencilbuffer = false;
+    params.WindowSize = res;
+
+    irrlicht = createDeviceEx(params);
 
     Video=irrlicht->getVideoDriver();
     Scene=irrlicht->getSceneManager();
@@ -95,153 +64,162 @@ int main(int argc, char **argv)
 
     irrlicht->getFileSystem()->changeWorkingDirectoryTo("C:\\Gibson\\");
 
+    Ray.hideCursor();
+    Video->setAllowZWriteOnTransparent(true);
 
-	Ray.hideCursor();
-	Video->setAllowZWriteOnTransparent(true);
+    IPostProc* ppRenderer = new CRendererPostProc( Scene, dimension2du( 1024, 1024 ), true, true, SColor( 255u, 0,10,15 ) );
 
-	IPostProc* ppRenderer = new CRendererPostProc( Scene, dimension2du( 1024, 1024 ), true, true, SColor( 255u, 0,10,15 ) );
-	// When setting up the effect, the parameters are:
-	// Input, size of output, effect ID (see CEffectPostProc.h for full list), effect parameters (in this case, blur size)
-	CEffectPostProc* ppBlur = new CEffectPostProc( ppRenderer, dimension2du( 1024, 1024 ), PP_BLOOM, 3, 0.005, 1.5);
-	//CEffectPostProc* ppBlur = new CEffectPostProc( ppRenderer, dimension2du( 1024, 1024 ), PP_MOTIONBLUR, 0.1);
-	//CEffectPostProc* ppBlur = new CEffectPostProc( ppRenderer, dimension2du( 1024, 1024 ), PP_BLOOM, 3, 0.005, 1.5);
-	//CEffectPostProc* ppBlur = new CEffectPostProc( ppRenderer, dimension2du( 1024, 1024 ), PP_INVERT);
-	// Change to a better quality - not all shaders will respect these, but they can be used to hint the rendering standard required.
-	ppBlur->setQuality( PPQ_BEST );
-	// Options (worst to best): PPQ_CRUDE, PPQ_FAST, PPQ_DEFAULT, PPQ_GOOD, PPQ_BEST
-	// You can also call setOverallQuality( PPQ_WHATEVER ) to change the quality of all effects which are in the chain.
+    // When setting up the effect, the parameters are:
+    // Input, size of output, effect ID (see CEffectPostProc.h for full
+    // list), effect parameters (in this case, blur size)
+    //CEffectPostProc* ppBlur = new CEffectPostProc( ppRenderer, dimension2du( 1024, 1024 ), PP_BLOOM, 3, 0.005, 1.5);
+    //CEffectPostProc* ppBlur = new CEffectPostProc( ppRenderer, dimension2du( 1024, 1024 ), PP_INVERT);
+    CEffectPostProc* ppBlur = new CEffectPostProc(
+        ppRenderer,
+        dimension2du(1024, 1024),
+        PP_MOTIONBLUR,
+        0.1
+    );
 
-	//Ray.importZipFile("D:\\gibson\\data.zip");
+    // Change to a better quality - not all shaders will respect these,
+    // but they can be used to hint the rendering standard required.
+    // Options (worst to best): PPQ_CRUDE, PPQ_FAST, PPQ_DEFAULT,
+    //     PPQ_GOOD, PPQ_BEST
+    // You can also call setOverallQuality( PPQ_WHATEVER ) to change the
+    // quality of all effects which are in the chain.
+    ppBlur->setQuality( PPQ_BEST );
 
-	Ray.setWindowTitle(L"The Gibson version 15");
+    //Ray.importZipFile("D:\\gibson\\data.zip");
 
-	Image loading;
-	loading.loadImg("loading.png");
+    Ray.setWindowTitle(gibson_version);
 
-	Ray.Render.clearScreen(0,0,0,1);
+    Image loading;
+    loading.loadImg(loading_image);
 
-	loading.draw((res.Width/2) - (loading.w/2), (res.Height/2) - (loading.h/2));
+    Ray.Render.clearScreen(0,0,0,1);
 
-   	Gui->drawAll();
-   	Video->endScene();
+    loading.draw((res.Width/2) - (loading.w/2), (res.Height/2) - (loading.h/2));
 
-	Room room;
-	FlyCam cam;
-	PulseSet pulses;
-	srand(time(NULL));
+    Gui->drawAll();
+    Video->endScene();
 
-	room.init();
-	//cam.init();
-	pulses.init(1000);
+    Room room;
+    FlyCam cam;
+    PulseSet pulses;
+    srand(time(NULL));
 
-	setAmbient(0.4,0.4,0.4, 1);
+    room.init();
+    //cam.init();
+    pulses.init(1000);
 
-	cam.init();
-	cam.cam.camera->setFarValue(700);
+    setAmbient(0.4,0.4,0.4, 1);
 
-	int lastFPS = Video->getFPS();
-	then = Ray.getTime();
+    cam.init();
+    cam.cam.camera->setFarValue(700);
 
-	bool kill = false;
-	int fps;
+    int lastFPS = Video->getFPS();
+    then = Ray.getTime();
 
-	//PathCreator creator(Video, cam.cam.camera, "path.txt", "camPath");
+    bool kill = false;
+    int fps;
 
-	while(Ray.running() && !key[KEY_ESCAPE])
-	{
-		delta = (f32)(Ray.getTime() - then) / 1000;
-		then = Ray.getTime();
+    //PathCreator creator(Video, cam.cam.camera, "path.txt", "camPath");
 
-		Ray.Render.clearScreen(0,10,15,1);
+    while(Ray.running() && !key[KEY_ESCAPE])
+    {
+        delta = (f32)(Ray.getTime() - then) / 1000;
+        then = Ray.getTime();
 
-		///*
+        Ray.Render.clearScreen(0,10,15,1);
 
-		if(key[KEY_F10])
-			Ray.Render.takeScreenshot();
+        ///*
 
-
-		cam.empty->updateAbsolutePosition();
-		cam.cam.camera->setTarget(cam.empty->getAbsolutePosition());
-		room.update();
-		pulses.update();
-
-		/*
-		for(int x=0; x < KEY_KEY_CODES_COUNT; x++)
-		{
-			if(x != KEY_F10 && key[x])
-			{
-				kill = true;
-				break;
-			}
-		}
-		if(kill)
-			break;
-			*/
+        if(key[KEY_F10])
+            Ray.Render.takeScreenshot();
 
 
-		/*
-		if(leftMouse)
-			creator.addPath(); // add path to list
-		else if (rightMouse)
-			creator.delPath(); // delete path from list
-		else if (key[KEY_KEY_C])
-			creator.conPath(); // connect path
-		else if (key[KEY_KEY_Z])
-			creator.save(); // save list to file
+        cam.empty->updateAbsolutePosition();
+        cam.cam.camera->setTarget(cam.empty->getAbsolutePosition());
+        room.update();
+        pulses.update();
 
-
-       	creator.drawPath();
-		Ray.Render.drawScreen();
-		Ray.Render.endScene();
-		*/
-
-
-
-
-        // The rendering is as normal, except smgr->drawAll(); is replaced with this line:
-       	ppBlur->render( NULL ); // NULL = render to screen. Can also take a texture to render to, or no parameter (renders to an internal texture)
-       	//*/
-       	//Scene->drawAll();
-
-       	Gui->drawAll();
-       	Video->endScene();
-
-
-       	/*
-        fps = Video->getFPS();
-
-        if (lastFPS != fps)
+        /*
+        for(int x=0; x < KEY_KEY_CODES_COUNT; x++)
         {
-                core::stringw str = L"The Gibson Version 14 ";
-                str += "FPS: ";
-                str += fps;
-
-                irrlicht->setWindowCaption(str.c_str());
-                lastFPS = fps;
+            if(x != KEY_F10 && key[x])
+            {
+                kill = true;
+                break;
+            }
         }
+        if(kill)
+            break;
+            */
+
+
+        /*
+        if(leftMouse)
+            creator.addPath(); // add path to list
+        else if (rightMouse)
+            creator.delPath(); // delete path from list
+        else if (key[KEY_KEY_C])
+            creator.conPath(); // connect path
+        else if (key[KEY_KEY_Z])
+            creator.save(); // save list to file
+
+
+           creator.drawPath();
+        Ray.Render.drawScreen();
+        Ray.Render.endScene();
         */
-	}
-
-	delete ppBlur;
-	delete ppRenderer;
 
 
-	/*
-	cout << cam.cam.camera->getAbsolutePosition().X << ',' \
-			<< cam.cam.camera->getAbsolutePosition().Y << ',' \
-			<< cam.cam.camera->getAbsolutePosition().Z << '\n';
-	cout << cam.empty->getAbsolutePosition().X << ',' \
-			<< cam.empty->getAbsolutePosition().Y << ',' \
-			<< cam.empty->getAbsolutePosition().Z << '\n';
-			*/
-	cout << "Made it to end! Attempting Ray.exit...\n";
 
-	Ray.exit();
 
-	cout << "Ray3D is dead!\n";
+       // The rendering is as normal, except smgr->drawAll(); is
+       // replaced with this line:
+       // NULL = render to screen. Can also take a texture to render to,
+       // or no parameter (renders to an internal texture)
+       ppBlur->render( NULL );
+       //*/
+       //Scene->drawAll();
 
-	exit(0);
+       Gui->drawAll();
+       Video->endScene();
 
-	// This shouldn't be necessary
-	return 0;
+
+       // Change the window title reflect changes in the FPS count
+       fps = Video->getFPS();
+        if (lastFPS != fps){
+            core::stringw str = gibson_version;
+            str += " FPS: ";
+            str += fps;
+
+            irrlicht->setWindowCaption(str.c_str());
+            lastFPS = fps;
+        }
+    }
+
+    delete ppBlur;
+    delete ppRenderer;
+
+
+    //cout << cam.cam.camera->getAbsolutePosition().X << ',' \
+            //<< cam.cam.camera->getAbsolutePosition().Y << ',' \
+            //<< cam.cam.camera->getAbsolutePosition().Z << '\n';
+    //cout << cam.empty->getAbsolutePosition().X << ',' \
+            //<< cam.empty->getAbsolutePosition().Y << ',' \
+            //<< cam.empty->getAbsolutePosition().Z << '\n';
+
+    cout << "Made it to end! Attempting Ray.exit..." << endl;
+
+    Ray.exit();
+
+    exit(0);
+
+    cout << "Ray3D is dead!" << endl;
+
+
+    // This shouldn't be necessary
+    return 0;
 }
