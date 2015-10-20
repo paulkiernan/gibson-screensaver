@@ -1,7 +1,7 @@
-/* Gibson - Screensaver that pays homage to the Gibson in Hackers */
+/* Gibson program global variables, mainly the location of files*/
 
 /*
-    Copyright © 2011 John Serafino
+    Copyright Â© 2015 Paul Kiernan
     This file is part of The Gibson Screensaver.
 
     The Gibson Screensaver is free software: you can redistribute it and/or modify
@@ -18,25 +18,21 @@
     along with The Gibson Screensaver If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef MAIN_H_
-#define MAIN_H_
-#include <ray3d.h>
-#include "cam.h"
-#include "room.h"
-#include "pulse.h"
-#include <time.h>
+#ifndef GLOBALS_H_
+#define GLOBALS_H_
 
-dimension2d<u32> getScreenResolution(void){
+/* Configuration container for things like texture paths and mesh files
+ * and etc.
+ */
+namespace gibson_config{
 
-    // create a NULL device to detect screen resolution
-    IrrlichtDevice *nulldevice = createDevice(video::EDT_NULL);
-    core::dimension2d<u32> deskres = nulldevice->getVideoModeList()->getDesktopResolution();
-    //
-    // Something weird is going on with reference counts
-    // TODO: figure out what's wrong with calling drop()
-    //nulldevice -> drop();
+    char* const room_mesh = "media/room.3ds";
+    char* const room_texture = "media/room.png";
+    char* const towers_mesh = "media/towers.obj";
+    char* const dark_towers_template_filename = "media/towers1-%d.png";
+    char* const light_towers_template_filename = "media/towers2-%d.png";
+    char* const pulse_mesh = "media/pulse.obj";
+    char* const pulse_texture = "media/pulse.png";
+};
 
-    return deskres;
-}
-
-#endif /* MAIN_H_ */
+#endif /* GLOBALS_H_ */

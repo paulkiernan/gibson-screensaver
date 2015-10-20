@@ -9,14 +9,13 @@ using namespace io;
 using namespace gui;
 
 
-HWSkinCB::HWSkinCB()
-{
-	delay=0; //(17 ms = appr 1/60th of a second = 60 FPS)	
+HWSkinCB::HWSkinCB(){
+    delay=0; //(17 ms = appr 1/60th of a second = 60 FPS)
 }
 
-HWSkinCB::~HWSkinCB()
-{
-	this->drop();
+HWSkinCB::~HWSkinCB(){
+    // NOTE: @@PK: should definitely fix this in the future!
+    //this->drop();
 }
 
 HWSkinCB* HWSkinCB::getInstance()
@@ -31,19 +30,19 @@ void HWSkinCB::setupNode(IrrlichtDevice *device, IAnimatedMeshSceneNode* node, u
 	if (refresh)
 		delay=refresh;
 
-	bool result = node->getMaterial(0).getFlag(video::EMF_LIGHTING); 
+	bool result = node->getMaterial(0).getFlag(video::EMF_LIGHTING);
 	if (result==false)
 		lightsenabled = false;
-	else 
+	else
 		lightsenabled = true;
 
 	this->device = device;
 	this->mesh = (ISkinnedMesh*)node->getMesh();
 	this->mesh->setHardwareMappingHint(EHM_DYNAMIC);
-		
+
 	ISceneManager* smgr = device->getSceneManager();
 	IVideoDriver* driver = device->getVideoDriver();
-	
+
 	for(u32 i = 0;i < this->mesh->getMeshBuffers().size();++i)
 	{
 		for(u32 g = 0;g < this->mesh->getMeshBuffers()[i]->getVertexCount();++g)
@@ -51,7 +50,7 @@ void HWSkinCB::setupNode(IrrlichtDevice *device, IAnimatedMeshSceneNode* node, u
 			this->mesh->getMeshBuffers()[i]->getVertex(g)->Color = SColor(0,0,0,0);
 		}
 	}
-	
+
 	for(u32 z = 0;z < this->mesh->getAllJoints().size();++z)
 	{
 		for(u32 j = 0;j < this->mesh->getAllJoints()[z]->Weights.size();++j)
@@ -60,7 +59,7 @@ void HWSkinCB::setupNode(IrrlichtDevice *device, IAnimatedMeshSceneNode* node, u
 
 			int vertexId = this->mesh->getAllJoints()[z]->Weights[j].vertex_id;
 			SColor* vColor = &this->mesh->getMeshBuffers()[buffId]->getVertex(vertexId)->Color;
-			
+
 			if(vColor->getRed() == 0)
 				vColor->setRed(z + 1);
 			else if(vColor->getGreen() == 0)
@@ -77,7 +76,7 @@ void HWSkinCB::setupNode(IrrlichtDevice *device, IAnimatedMeshSceneNode* node, u
 	// Applying the shader
 	IGPUProgrammingServices* gpu = driver->getGPUProgrammingServices();
 	int HWSkinMat = EMT_SOLID;
-	
+
 	if(driver->getDriverType() == EDT_OPENGL && !lightsenabled)
 		HWSkinMat = gpu->addHighLevelShaderMaterialFromFiles
 		("HWSkinV.glsl","main",EVST_VS_2_0,"","",EPST_PS_2_0,this);
@@ -108,13 +107,13 @@ void HWSkinCB::OnSetConstants(video::IMaterialRendererServices* services, s32 us
 		worldViewProj = services->getVideoDriver()->getTransform(video::ETS_PROJECTION);
 		worldViewProj *= services->getVideoDriver()->getTransform(video::ETS_VIEW);
 		worldViewProj *= services->getVideoDriver()->getTransform(video::ETS_WORLD);
-				
+
 		core::matrix4 world;
 		world = services->getVideoDriver()->getTransform(video::ETS_WORLD)[0];
 		services->setVertexShaderConstant("mWorldViewProj", &worldViewProj[0], 16);
 		services->setVertexShaderConstant("mWorld", &world[0], 16);
-		
-		if (lightsenabled)		
+
+		if (lightsenabled)
 		{
 			f32* lightPosArray = new f32[8 * 3];
 			f32* lightPosArrayPtr = lightPosArray;
@@ -131,7 +130,7 @@ void HWSkinCB::OnSetConstants(video::IMaterialRendererServices* services, s32 us
 					lightPosArray[1] = lightPos.Y;
 					lightPosArray[2] = lightPos.Z;
 					lightPosArray += 3;
-				
+
 					lightColArray[0] = lightCol.r;
 					lightColArray[1] = lightCol.g;
 					lightColArray[2] = lightCol.b;
@@ -144,7 +143,7 @@ void HWSkinCB::OnSetConstants(video::IMaterialRendererServices* services, s32 us
 					lightPosArray[1] = 0;
 					lightPosArray[2] = 0;
 					lightPosArray += 3;
-				
+
 					lightColArray[0] = 0;
 					lightColArray[1] = 0;
 					lightColArray[2] = 0;
@@ -161,7 +160,7 @@ void HWSkinCB::OnSetConstants(video::IMaterialRendererServices* services, s32 us
 	}
 	u32 timer = device->getTimer()->getRealTime();
 	if (timer-oldtimer>=delay)
-	{	
+	{
 		oldtimer = timer;
 		if (mesh)
 		{
@@ -172,14 +171,14 @@ void HWSkinCB::OnSetConstants(video::IMaterialRendererServices* services, s32 us
 			{
 				core::matrix4 JointVertexPull(core::matrix4::EM4CONST_NOTHING);
 				JointVertexPull.setbyproduct(
-				mesh->getAllJoints()[i]->GlobalAnimatedMatrix, 
+				mesh->getAllJoints()[i]->GlobalAnimatedMatrix,
 				mesh->getAllJoints()[i]->GlobalInversedMatrix);
-			
+
 				copyMat(JointArray + copyIncrement, JointVertexPull);
-				copyIncrement += 16;				
+				copyIncrement += 16;
 			}
-			
-			
+
+
 			/*
 			// Special method for ATI.
 			if(use_ati == 'y')
