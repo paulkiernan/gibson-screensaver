@@ -7,8 +7,8 @@
 //! 3. additive lane pulse ribbons,
 //! 4. bloom (prefilter + 13-tap down + 3x3 tent up; skipped at `bloom == 0`),
 //! 5. motion blur by depth reprojection (skipped at `motion_blur == 0`),
-//! 6. composite (ACES, chromatic aberration, grain, vignette) to the surface or an offscreen
-//!    sRGB texture (`render_to_rgba`).
+//! 6. composite (ACES, chromatic aberration, grain, vignette, optional CRT overlay scaled by
+//!    `settings.crt`) to the surface or an offscreen sRGB texture (`render_to_rgba`).
 //!
 //! WebGL2 constraints every pipeline in this crate respects: no storage buffers, no compute
 //! shaders, one uniform buffer <= 16 KiB per binding, per-instance data via instance-step vertex
@@ -122,6 +122,11 @@ pub struct Renderer {
     /// Previous-frame view-projection matrix for motion-blur reprojection.
     prev_view_proj: Mat4,
     has_prev: bool,
+
+    /// Frames actually presented to the surface.
+    presented: u64,
+    /// Frames dropped because the surface was busy/occluded (no present happened).
+    skipped: u64,
 }
 
 fn scaled_dimensions(width: u32, height: u32, scale: f32) -> (u32, u32) {
@@ -441,6 +446,8 @@ impl Renderer {
             composite_b_bg: bloom0.2,
             prev_view_proj: Mat4::IDENTITY,
             has_prev: false,
+            presented: 0,
+            skipped: 0,
         })
     }
 
@@ -508,7 +515,48 @@ impl Renderer {
             | wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,
             wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
                 log::debug!("gibson-render: surface busy/occluded; frame skipped");
+                self.skipped += 1;
                 return Ok(());
+            }
+            other @ (wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost) => {
+                // Display-mode change or GPU reset: reconfigure the surface at the current size
+                // and try exactly once before surfacing an error. Without this a screensaver
+                // that stops its loop after repeated failures would black-screen on a mode
+                // change until its idle self-terminate kicks in.
+                log::info!("gibson-render: surface {other:?}; reconfiguring and retrying once");
+                if let (Some(surf), Some(format)) = (&self.surface, self.surface_format) {
+                    let config = wgpu::SurfaceConfiguration {
+                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                        format,
+                        color_space: wgpu::SurfaceColorSpace::Auto,
+                        width: self.width,
+                        height: self.height,
+                        present_mode: wgpu::PresentMode::AutoVsync,
+                        alpha_mode: wgpu::CompositeAlphaMode::Auto,
+                        view_formats: vec![],
+                        desired_maximum_frame_latency: 2,
+                    };
+                    surf.configure(&self.device, &config);
+                    match surf.get_current_texture() {
+                        wgpu::CurrentSurfaceTexture::Success(t)
+                        | wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,
+                        wgpu::CurrentSurfaceTexture::Timeout
+                        | wgpu::CurrentSurfaceTexture::Occluded => {
+                            log::debug!("gibson-render: surface busy after reconfigure; frame skipped");
+                            self.skipped += 1;
+                            return Ok(());
+                        }
+                        other => {
+                            return Err(RenderError::Surface(format!(
+                                "surface acquire failed after reconfigure: {other:?}"
+                            )));
+                        }
+                    }
+                } else {
+                    return Err(RenderError::Surface(
+                        "surface lost but no surface to reconfigure".into(),
+                    ));
+                }
             }
             other => {
                 return Err(RenderError::Surface(format!(
@@ -524,7 +572,16 @@ impl Renderer {
             .create_view(&wgpu::TextureViewDescriptor::default());
         self.run_chain(frame, &view, format)?;
         self.queue.present(texture);
+        self.presented += 1;
         Ok(())
+    }
+
+    /// (presented, skipped) frame counters. `presented` counts frames actually presented to
+    /// the surface; `skipped` counts frames dropped because the surface reported `Timeout` or
+    /// `Occluded` (the host should back off when it sees the skip counter advance). Offscreen
+    /// `render_to_rgba` frames never touch either counter.
+    pub fn present_stats(&self) -> (u64, u64) {
+        (self.presented, self.skipped)
     }
 
     /// Render one frame offscreen and read back tightly packed sRGB8 rows, top row first.

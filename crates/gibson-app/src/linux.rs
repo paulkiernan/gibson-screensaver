@@ -112,7 +112,13 @@ unsafe fn drive(
     (xlib.XFlush)(display);
 
     let start = Instant::now();
-    let mut frame_tick = Instant::now();
+    // If the window is destroyed between our adoption and XSelectInput above,
+    // no DestroyNotify is ever queued for us — and if the owner crashes, none
+    // arrives either. Re-query the window once a second as an event-stream-
+    // independent liveness check, and cap consecutive frame errors so a dead
+    // window cannot spin the loop at 60 Hz logging forever.
+    let mut liveness_check = Instant::now() + Duration::from_secs(1);
+    let mut error_policy = crate::error_policy::ConsecutiveErrorPolicy::new(10);
     loop {
         // Drain window events without blocking.
         let mut event: XEvent = std::mem::zeroed();
@@ -134,18 +140,43 @@ unsafe fn drive(
             }
         }
 
-        // One frame, paced to ~60 Hz.
-        let t = start.elapsed().as_secs_f64();
-        if let Err(e) = gibson.frame(t) {
-            log::error!("frame error: {e}");
-        }
-        (xlib.XFlush)(display);
-        frame_tick += Duration::from_millis(16);
+        // Independent liveness check (see note above). X errors are swallowed
+        // by the handler installed in drive(), so a vanished window simply
+        // makes XGetWindowAttributes return 0.
         let now = Instant::now();
-        if frame_tick > now {
-            std::thread::sleep(frame_tick - now);
-        } else {
-            frame_tick = now + Duration::from_millis(16);
+        if now >= liveness_check {
+            liveness_check = now + Duration::from_secs(1);
+            let mut live: XWindowAttributes = std::mem::zeroed();
+            if (xlib.XGetWindowAttributes)(display, xid, &mut live) == 0 {
+                log::info!("window {xid:#x} is gone; exiting");
+                return Ok(());
+            }
         }
+
+        // One frame, paced to ~60 Hz when presenting. If the surface reports the frame
+        // skipped (window covered / surface busy), back off to a slow poll instead so an
+        // invisible hack cannot spin.
+        let t = start.elapsed().as_secs_f64();
+        let (presented_before, _) = gibson.present_stats();
+        match gibson.frame(t) {
+            Ok(()) => error_policy.record_success(),
+            Err(e) => {
+                log::error!("frame error: {e}");
+                if error_policy.record_error() {
+                    return Err(format!(
+                        "{} consecutive frame errors on window {xid:#x}; giving up",
+                        error_policy.consecutive()
+                    ));
+                }
+            }
+        }
+        let (presented_after, _) = gibson.present_stats();
+        (xlib.XFlush)(display);
+        let wait = if presented_after > presented_before {
+            Duration::from_millis(16)
+        } else {
+            Duration::from_millis(250)
+        };
+        std::thread::sleep(wait);
     }
 }
