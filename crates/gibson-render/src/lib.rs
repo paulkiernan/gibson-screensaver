@@ -40,6 +40,7 @@ pub mod shaders {
 mod bloom;
 mod floor;
 mod post;
+mod profile;
 mod pulses;
 mod targets;
 mod towers;
@@ -127,6 +128,15 @@ pub struct Renderer {
     presented: u64,
     /// Frames dropped because the surface was busy/occluded (no present happened).
     skipped: u64,
+    /// Sub-counters of `skipped`, by reason: a `Timeout` means the drawable pool
+    /// was starved; an `Occluded` means the layer/window is not displayable.
+    skipped_timeout: u64,
+    skipped_occluded: u64,
+
+    /// GPU timestamp profiling state; `Some` only when `GIBSON_PROFILE` was set in the
+    /// environment and the adapter supports `TIMESTAMP_QUERY` (the default device requests
+    /// no features, so the WebGL2 envelope is untouched).
+    profile: Option<profile::Profile>,
 }
 
 fn scaled_dimensions(width: u32, height: u32, scale: f32) -> (u32, u32) {
@@ -145,7 +155,7 @@ fn atlas_sampler(device: &wgpu::Device) -> wgpu::Sampler {
         address_mode_w: wgpu::AddressMode::ClampToEdge,
         mag_filter: wgpu::FilterMode::Linear,
         min_filter: wgpu::FilterMode::Linear,
-        mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+        mipmap_filter: wgpu::MipmapFilterMode::Linear,
         ..Default::default()
     })
 }
@@ -194,7 +204,17 @@ fn scene_bgl(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     })
 }
 
+/// Mip levels for the atlas: 256x768 -> 128x384 -> 64x192.
+///
+/// Mipmapped sampling is the standard real-time fix for minified texture reads: without it
+/// every distant text fragment fetches four texels from a 256x768 x 64-layer array, which
+/// thrashes the texture cache (and aliases) for the many mid/far faces a canyon view stacks.
+/// Only the R (glyph coverage) channel is meaningful when filtered; the block metadata fetch
+/// uses `textureLoad`, which always reads level 0.
+const ATLAS_MIPS: u32 = 3;
+
 fn upload_atlas(device: &wgpu::Device, queue: &wgpu::Queue, atlas: &AtlasImage) -> wgpu::Texture {
+    let started = std::time::Instant::now();
     let tex = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("gibson-atlas"),
         size: wgpu::Extent3d {
@@ -202,7 +222,7 @@ fn upload_atlas(device: &wgpu::Device, queue: &wgpu::Queue, atlas: &AtlasImage) 
             height: atlas.height,
             depth_or_array_layers: atlas.layers,
         },
-        mip_level_count: 1,
+        mip_level_count: ATLAS_MIPS,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format: wgpu::TextureFormat::Rgba8Unorm,
@@ -228,6 +248,67 @@ fn upload_atlas(device: &wgpu::Device, queue: &wgpu::Queue, atlas: &AtlasImage) 
             height: atlas.height,
             depth_or_array_layers: atlas.layers,
         },
+    );
+
+    // Box-filter the remaining levels on the CPU (once, at startup) and upload them
+    // layer-major, exactly like level 0.
+    let layers = atlas.layers as usize;
+    let mut src = atlas.rgba.clone();
+    let (mut w, mut h) = (atlas.width, atlas.height);
+    for mip in 1..ATLAS_MIPS {
+        let (nw, nh) = ((w / 2).max(1), (h / 2).max(1));
+        let src_layer = (w * h * 4) as usize;
+        let dst_layer = (nw * nh * 4) as usize;
+        let mut dst = vec![0u8; dst_layer * layers];
+        for layer in 0..layers {
+            let s = &src[layer * src_layer..(layer + 1) * src_layer];
+            let d = &mut dst[layer * dst_layer..(layer + 1) * dst_layer];
+            for y in 0..nh as usize {
+                for x in 0..nw as usize {
+                    let mut acc = [0u32; 4];
+                    for dy in 0..2 {
+                        for dx in 0..2 {
+                            let sx = (x * 2 + dx).min(w as usize - 1);
+                            let sy = (y * 2 + dy).min(h as usize - 1);
+                            let i = (sy * w as usize + sx) * 4;
+                            for c in 0..4 {
+                                acc[c] += s[i + c] as u32;
+                            }
+                        }
+                    }
+                    let o = (y * nw as usize + x) * 4;
+                    for c in 0..4 {
+                        d[o + c] = (acc[c] / 4) as u8;
+                    }
+                }
+            }
+        }
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &tex,
+                mip_level: mip,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &dst,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(nw * 4),
+                rows_per_image: Some(nh),
+            },
+            wgpu::Extent3d {
+                width: nw,
+                height: nh,
+                depth_or_array_layers: atlas.layers,
+            },
+        );
+        src = dst;
+        w = nw;
+        h = nh;
+    }
+    log::debug!(
+        "gibson-render: atlas uploaded with {ATLAS_MIPS} mips in {:.1} ms",
+        started.elapsed().as_secs_f64() * 1000.0
     );
     tex
 }
@@ -297,10 +378,23 @@ impl Renderer {
             .map_err(|_| RenderError::NoAdapter)?;
         log::info!("gibson-render: adapter {:?}", adapter.get_info());
 
+        // Profiling is opt-in via the environment and only when the adapter can do GPU
+        // timestamps inside command encoders; the default device still requests no features.
+        let profile_features = wgpu::Features::TIMESTAMP_QUERY;
+        let want_profile = cfg!(not(target_arch = "wasm32"))
+            && std::env::var_os("GIBSON_PROFILE").is_some()
+            && adapter.features().contains(profile_features);
+        let required_features = if want_profile {
+            log::info!("gibson-render: GPU timestamp profiling enabled (GIBSON_PROFILE)");
+            profile_features
+        } else {
+            wgpu::Features::empty()
+        };
+
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("gibson-device"),
-                required_features: wgpu::Features::empty(),
+                required_features,
                 // Keep every resource shape inside the WebGL2 envelope so the same pipelines
                 // work on the downlevel web target... but let the resolution limits come from
                 // the adapter: hosts render at physical pixels (e.g. 2x Retina can exceed the
@@ -350,6 +444,7 @@ impl Renderer {
             surface_format = Some(format);
         }
         let _ = settings;
+        let profile = want_profile.then(|| profile::Profile::new(&device, &queue));
 
         // Everything below creates pipelines/resources; capture any validation error (WGSL
         // compile failures included) and surface it as RenderError so hosts can report it.
@@ -448,6 +543,9 @@ impl Renderer {
             has_prev: false,
             presented: 0,
             skipped: 0,
+            skipped_timeout: 0,
+            skipped_occluded: 0,
+            profile,
         })
     }
 
@@ -513,9 +611,16 @@ impl Renderer {
         let texture = match surf.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(t)
             | wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,
-            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
-                log::debug!("gibson-render: surface busy/occluded; frame skipped");
+            wgpu::CurrentSurfaceTexture::Timeout => {
+                log::debug!("gibson-render: surface timeout; frame skipped");
                 self.skipped += 1;
+                self.skipped_timeout += 1;
+                return Ok(());
+            }
+            wgpu::CurrentSurfaceTexture::Occluded => {
+                log::debug!("gibson-render: surface occluded; frame skipped");
+                self.skipped += 1;
+                self.skipped_occluded += 1;
                 return Ok(());
             }
             other @ (wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost) => {
@@ -540,10 +645,16 @@ impl Renderer {
                     match surf.get_current_texture() {
                         wgpu::CurrentSurfaceTexture::Success(t)
                         | wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,
-                        wgpu::CurrentSurfaceTexture::Timeout
-                        | wgpu::CurrentSurfaceTexture::Occluded => {
-                            log::debug!("gibson-render: surface busy after reconfigure; frame skipped");
+                        wgpu::CurrentSurfaceTexture::Timeout => {
+                            log::debug!("gibson-render: surface timeout after reconfigure; frame skipped");
                             self.skipped += 1;
+                            self.skipped_timeout += 1;
+                            return Ok(());
+                        }
+                        wgpu::CurrentSurfaceTexture::Occluded => {
+                            log::debug!("gibson-render: surface occluded after reconfigure; frame skipped");
+                            self.skipped += 1;
+                            self.skipped_occluded += 1;
                             return Ok(());
                         }
                         other => {
@@ -570,7 +681,10 @@ impl Renderer {
         let view = texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        self.run_chain(frame, &view, format)?;
+        let mut prof = self.profile.take();
+        let result = self.run_chain(frame, &view, format, prof.as_mut());
+        self.profile = prof;
+        result?;
         self.queue.present(texture);
         self.presented += 1;
         Ok(())
@@ -582,6 +696,13 @@ impl Renderer {
     /// `render_to_rgba` frames never touch either counter.
     pub fn present_stats(&self) -> (u64, u64) {
         (self.presented, self.skipped)
+    }
+
+    /// `(skipped_timeout, skipped_occluded)`: why frames were dropped. A
+    /// `Timeout` points at a starved drawable pool (the GPU/host is behind);
+    /// an `Occluded` points at a layer or window the display cannot show.
+    pub fn skip_breakdown(&self) -> (u64, u64) {
+        (self.skipped_timeout, self.skipped_occluded)
     }
 
     /// Render one frame offscreen and read back tightly packed sRGB8 rows, top row first.
@@ -603,7 +724,10 @@ impl Renderer {
             view_formats: &[],
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        self.run_chain(frame, &view, format)?;
+        let mut prof = self.profile.take();
+        let result = self.run_chain(frame, &view, format, prof.as_mut());
+        self.profile = prof;
+        result?;
 
         // Read back with the 256-byte row alignment wgpu requires for buffers, then strip it.
         let bytes_per_row = align_up(self.width as usize * 4, 256);
@@ -657,6 +781,7 @@ impl Renderer {
         frame: &FrameData,
         final_view: &wgpu::TextureView,
         final_format: wgpu::TextureFormat,
+        mut profile: Option<&mut profile::Profile>,
     ) -> Result<(), RenderError> {
         // Camera matrices.
         let vp = projection_matrix(&frame.camera, self.width, self.height)
@@ -688,7 +813,106 @@ impl Renderer {
             });
 
         // --- Scene: floor, towers, pulses into color_a + depth. ---
-        {
+        // When profiling, the three scene stages run as separate passes (towers/pulses load the
+        // floor's color + depth instead of clearing) so their cost is attributable; the
+        // production path keeps the single pass.
+        if profile.is_some() {
+            let tw = match profile.as_deref_mut() {
+                Some(p) => p.pass("scene floor"),
+                None => None,
+            };
+            let mut rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("gibson-floor-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.targets.view_a,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.targets.depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: tw,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            rp.set_bind_group(0, &self.scene_bg, &[]);
+            rp.set_pipeline(&self.floor.pipeline);
+            self.floor.draw(&mut rp);
+            drop(rp);
+
+            let tw = match profile.as_deref_mut() {
+                Some(p) => p.pass("scene towers"),
+                None => None,
+            };
+            let mut rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("gibson-towers-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.targets.view_a,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.targets.depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: tw,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            rp.set_bind_group(0, &self.scene_bg, &[]);
+            rp.set_pipeline(&self.towers.pipeline);
+            self.towers.draw(&mut rp, frame.towers.len() as u32);
+            drop(rp);
+
+            let tw = match profile.as_deref_mut() {
+                Some(p) => p.pass("scene pulses"),
+                None => None,
+            };
+            let mut rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("gibson-pulses-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.targets.view_a,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.targets.depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: tw,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            rp.set_bind_group(0, &self.scene_bg, &[]);
+            rp.set_pipeline(&self.pulses.pipeline);
+            self.pulses.draw(&mut rp, frame.pulses.len() as u32);
+            drop(rp);
+        } else {
             let mut rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("gibson-scene-pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -725,12 +949,16 @@ impl Renderer {
 
         // --- Bloom (skipped when settings.bloom == 0). ---
         if frame.settings.bloom > 0.0 {
-            self.bloom.run(&mut encoder);
+            self.bloom.run(&mut encoder, profile.as_deref_mut());
         }
 
         // --- Motion blur: color_a + depth -> color_b (skipped when motion_blur == 0). ---
         let motion_on = frame.settings.motion_blur > 0.0;
         if motion_on {
+            let tw = match profile.as_deref_mut() {
+                Some(p) => p.pass("motion blur"),
+                None => None,
+            };
             let mut rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("gibson-motion-pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -743,7 +971,7 @@ impl Renderer {
                     },
                 })],
                 depth_stencil_attachment: None,
-                timestamp_writes: None,
+                timestamp_writes: tw,
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
@@ -764,6 +992,10 @@ impl Renderer {
                 .post
                 .composite_pipeline(&self.device, final_format)
                 .clone();
+            let tw = match profile.as_deref_mut() {
+                Some(p) => p.pass("composite + CRT"),
+                None => None,
+            };
             let mut rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("gibson-composite-pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -776,7 +1008,7 @@ impl Renderer {
                     },
                 })],
                 depth_stencil_attachment: None,
-                timestamp_writes: None,
+                timestamp_writes: tw,
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
@@ -786,10 +1018,86 @@ impl Renderer {
             rp.draw(0..3, 0..1);
         }
 
+        // Resolve the timestamp queries inside this submission so the caller can read them
+        // back right after the frame without a second submit.
+        if let Some(p) = profile.as_deref_mut() {
+            // Metal only records an end-of-pass timestamp at the next pass boundary, so the
+            // composite needs one trailing trivial pass to be measured at all.
+            let view = p.tail_view().clone();
+            let tw = p.pass("tail marker");
+            let _rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("gibson-profile-tail"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: tw,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+        }
+        if let Some(p) = profile.as_deref() {
+            p.resolve(&mut encoder);
+        }
+
         self.queue.submit(Some(encoder.finish()));
         self.prev_view_proj = vp;
         self.has_prev = true;
         Ok(())
+    }
+
+    /// Render one frame offscreen with GPU timestamps and return per-pass milliseconds.
+    ///
+    /// Only available when the renderer was created with `GIBSON_PROFILE` set and the adapter
+    /// supports `TIMESTAMP_QUERY`. The composite writes into a full-size offscreen texture
+    /// (same pixel count as a real frame) so its fill-rate cost is measured honestly; the
+    /// pixels are never read back, so the only GPU sync is the timestamp buffer.
+    pub fn profile_frame(
+        &mut self,
+        frame: &FrameData,
+    ) -> Result<Vec<(&'static str, f64)>, RenderError> {
+        let Some(mut profile) = self.profile.take() else {
+            return Err(RenderError::Other(
+                "profiling disabled: create the renderer with GIBSON_PROFILE=1".into(),
+            ));
+        };
+        profile.reset();
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("gibson-profile-target"),
+            size: wgpu::Extent3d {
+                width: self.width,
+                height: self.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let result = self.run_chain(
+            frame,
+            &view,
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+            Some(&mut profile),
+        );
+        let report = match result {
+            Ok(()) => profile.read(&self.device),
+            Err(e) => {
+                self.profile = Some(profile);
+                return Err(e);
+            }
+        };
+        self.profile = Some(profile);
+        Ok(report)
     }
 }
 

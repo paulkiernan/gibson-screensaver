@@ -22,6 +22,28 @@ import os
 ///   itself 65 s after stopping, unless a new activation cancels that.
 @objc(GibsonSaverView)
 final class GibsonSaverView: ScreenSaverView {
+    /// Layer delegate that reports a **nil** window.
+    ///
+    /// wgpu-hal 30 refuses to acquire a drawable whenever the hosting window's
+    /// `occlusionState` lacks the visible bit (`acquire_texture`, a workaround
+    /// for gfx-rs/wgpu#8309) and returns `SurfaceError::Occluded` without ever
+    /// calling `nextDrawable`. It finds that window by walking up from the
+    /// render layer to the first ancestor layer that has a delegate and reading
+    /// `delegate.window`. Screen-saver windows live at a private window level
+    /// where AppKit never sets the visible bit, so every frame was refused and
+    /// the saver stayed black while the display link ticked at 60 Hz.
+    ///
+    /// Installing this delegate on our own CAMetalLayer stops that walk at the
+    /// layer itself, so wgpu goes straight to `nextDrawable` — the call that
+    /// actually decides whether a drawable exists. The layer holds its delegate
+    /// weakly, so the view keeps a strong reference and re-asserts it (AppKit
+    /// normally owns this delegate and may reinstall itself).
+    private final class NilWindowLayerDelegate: NSObject, CALayerDelegate {
+        @objc var window: NSWindow? { nil }
+    }
+
+    private let layerDelegate = NilWindowLayerDelegate()
+
     private static let log = Logger(subsystem: SaverSettings.moduleName,
                                     category: "GibsonSaverView")
 
@@ -31,6 +53,8 @@ final class GibsonSaverView: ScreenSaverView {
         Notification.Name("org.hackthegibson.TheGibson.NewInstance")
     /// `userInfo` key carrying the poster's [`instanceToken`].
     private static let tokenKey = "instance-token"
+    /// `userInfo` key carrying the poster's display number.
+    private static let displayKey = "display-number"
     /// App-wide self-terminate timer: the host process lingers forever, so the
     /// saver quits itself once it has been stopped for a while. One timer for
     /// the process (termination is process-wide); a new start cancels it.
@@ -54,6 +78,19 @@ final class GibsonSaverView: ScreenSaverView {
     private var nextStatsLog: CFAbsoluteTime = 0
     private var lastPresented: UInt64 = 0
     private var lastSkipped: UInt64 = 0
+    private var lastTimeout: UInt64 = 0
+    private var lastOccluded: UInt64 = 0
+    /// Render time accumulated since the last stats line, for the honest
+    /// "ms per frame" figure (wall time inside `gibson_frame`).
+    private var frameTimeTotal: CFTimeInterval = 0
+    private var frameTimeCount = 0
+    private var lastStatsWallClock: CFAbsoluteTime = 0
+    /// Whether the view has ever been displayed (grace period at start).
+    private var hasBeenDisplayed = false
+    private var engineStartedAt: CFAbsoluteTime = 0
+    /// The CAMetalLayer handed to wgpu at engine start, compared each stats
+    /// tick with the view's current layer to detect a host layer swap.
+    private weak var configuredLayer: CAMetalLayer?
 
     // MARK: - Init / layer
 
@@ -63,9 +100,15 @@ final class GibsonSaverView: ScreenSaverView {
         NotificationCenter.default.addObserver(
             self, selector: #selector(handleNewInstance(_:)),
             name: Self.newInstanceNotification, object: nil)
-        DistributedNotificationCenter.default().addObserver(
-            self, selector: #selector(handleWillStop(_:)),
-            name: NSNotification.Name("com.apple.screensaver.willstop"), object: nil)
+        // Both notifications are observed: `willstop` is the reliable one in
+        // practice, but a dismissal has been seen where it never arrived (the
+        // engine then kept rendering slowly until the next activation claimed
+        // the display), so the companion `didstop` is a second trigger.
+        for name in ["com.apple.screensaver.willstop", "com.apple.screensaver.didstop"] {
+            DistributedNotificationCenter.default().addObserver(
+                self, selector: #selector(handleWillStop(_:)),
+                name: NSNotification.Name(name), object: nil)
+        }
     }
 
     required init?(coder: NSCoder) {
@@ -88,7 +131,95 @@ final class GibsonSaverView: ScreenSaverView {
         layer.contentsScale = window?.backingScaleFactor
             ?? NSScreen.main?.backingScaleFactor ?? 2
         layer.framebufferOnly = true
+        // See NilWindowLayerDelegate: without this, wgpu-hal's occlusion
+        // workaround refuses every frame on screen-saver windows.
+        layer.delegate = layerDelegate
+        if SaverSettings.shared.debugLayerFill {
+            // Diagnostics: an opaque fill needs no drawable, so if the display
+            // shows this colour the window/layer really is what is on screen.
+            layer.backgroundColor = NSColor.red.cgColor
+            Self.log.info("debug layer fill: backing layer painted red")
+        }
         return layer
+    }
+
+    // MARK: - Process-wide lifecycle registry
+
+    private final class WeakViewRef {
+        weak var view: GibsonSaverView?
+        init(_ view: GibsonSaverView) { self.view = view }
+    }
+
+    /// Views with a live engine, and the single owner allowed per display.
+    ///
+    /// The host process outlives activations, and `stopAnimation` is not
+    /// guaranteed at exit, so a view must be retired by us. The occlusion shim
+    /// (see `NilWindowLayerDelegate`) removed wgpu's accidental throttle for a
+    /// view whose window is not displayed, so an explicit lifecycle gate is
+    /// required — never `occlusionState`, which is meaningless at the screen
+    /// saver window level. Main thread only.
+    private static var liveViews: [WeakViewRef] = []
+    private static var ownerByDisplay: [UInt32: WeakViewRef] = [:]
+    private static var sweepTimer: Timer?
+
+    /// How often the sweep re-checks that live engines still have a window.
+    private static let sweepInterval: TimeInterval = 2
+
+    private static func register(_ view: GibsonSaverView) {
+        liveViews.removeAll { $0.view == nil }
+        if !liveViews.contains(where: { $0.view === view }) {
+            liveViews.append(WeakViewRef(view))
+        }
+        startSweepIfNeeded()
+    }
+
+    private static func unregister(_ view: GibsonSaverView) {
+        liveViews.removeAll { $0.view == nil || $0.view === view }
+        for (display, ref) in ownerByDisplay where ref.view == nil || ref.view === view {
+            ownerByDisplay.removeValue(forKey: display)
+        }
+        if liveViews.isEmpty {
+            sweepTimer?.invalidate()
+            sweepTimer = nil
+        }
+    }
+
+    private static func startSweepIfNeeded() {
+        guard sweepTimer == nil else { return }
+        let timer = Timer(timeInterval: sweepInterval, repeats: true) { _ in sweep() }
+        RunLoop.main.add(timer, forMode: .common)
+        sweepTimer = timer
+    }
+
+    /// Retire engines whose view has lost its window. A dismissed screen saver
+    /// can leave its view alive with the window ordered out, and a suspended
+    /// display link means the per-frame gate never runs, so this has to be
+    /// driven from the process, not from the view's own tick.
+    ///
+    /// The predicate is deliberately lifecycle-only. A `CGWindowListCopyWindowInfo`
+    /// "on screen" membership test was tried here and removed: screen saver
+    /// windows never appear in that list even while they are the only thing on
+    /// screen (measured directly during this investigation), so it tore down
+    /// live engines ~4 s into every activation. `occlusionState` is unusable
+    /// for the same reason. Only `window == nil` / `!isVisible` answer the
+    /// question at this window level.
+    private static func sweep() {
+        liveViews.removeAll { $0.view == nil }
+        for ref in liveViews {
+            guard let view = ref.view, view.gibsonHandle != nil else { continue }
+            if view.window == nil || view.window?.isVisible == false {
+                view.teardown(reason: "window gone")
+            }
+        }
+    }
+
+    /// Destroy the engine, drop out of the hierarchy and stop being tracked.
+    /// Called for detached and superseded views.
+    private func teardown(reason: String) {
+        guard gibsonHandle != nil || superview != nil else { return }
+        Self.log.info("tearing down engine (\(reason, privacy: .public))")
+        stopEngine()
+        removeFromSuperview()
     }
 
     // MARK: - Animation lifecycle
@@ -99,11 +230,13 @@ final class GibsonSaverView: ScreenSaverView {
         guard gibsonHandle == nil else { return }
         Self.log.info("startAnimation (preview=\(self.isPreview))")
         startEngine()
-        // Announce after the engine is up so older detached copies retire. The
-        // token identifies the author: every observer (this one included)
-        // ignores a notification it authored.
+        // Announce after the engine is up so older duplicates retire. The token
+        // identifies the author (a view never retires itself) and the display
+        // number lets an observer tell "same screen, superseded" (retire) from
+        // "another screen, still wanted" (keep).
         NotificationCenter.default.post(name: Self.newInstanceNotification, object: self,
-                                        userInfo: [Self.tokenKey: instanceToken])
+                                        userInfo: [Self.tokenKey: instanceToken,
+                                                   Self.displayKey: displayNumber as Any])
     }
 
     override func stopAnimation() {
@@ -113,8 +246,8 @@ final class GibsonSaverView: ScreenSaverView {
         scheduleTerminateIfNeeded()
     }
 
-    /// The engine never calls `stopAnimation` when the saver ends; the
-    /// distributed `willstop` notification does arrive, so treat it the same.
+    /// The engine never calls `stopAnimation` when the saver ends, so the
+    /// distributed stop notifications are treated the same way.
     @objc private func handleWillStop(_ note: Notification) {
         if Thread.isMainThread {
             willStop()
@@ -124,16 +257,18 @@ final class GibsonSaverView: ScreenSaverView {
     }
 
     private func willStop() {
-        Self.log.info("willstop notification received")
+        Self.log.info("screen saver stop notification received")
         stopEngine()
         scheduleTerminateIfNeeded()
     }
 
-    /// A newer instance started in this process. Retire only if this view is a
-    /// lingering copy — one the host has detached (no window, or a window that
-    /// is no longer visible). Identity does the deciding: a view never retires
-    /// itself, and a view still showing on screen (another display, the System
-    /// Settings tile) keeps running even though a newer one exists.
+    /// A newer instance started in this process. Retire when we are a
+    /// lingering copy — the host detached us (no window, or a window that is
+    /// no longer visible) — or when the newer instance is on the SAME display
+    /// as us (the host starts two views per activation; two live engines on
+    /// one screen halve the frame rate for no visible gain). A view still
+    /// showing on a DIFFERENT display keeps running. Identity does the
+    /// deciding: a view never retires itself.
     @objc private func handleNewInstance(_ note: Notification) {
         if let token = note.userInfo?[Self.tokenKey] as? UUID, token == instanceToken {
             return
@@ -141,10 +276,23 @@ final class GibsonSaverView: ScreenSaverView {
         if (note.object as AnyObject?) === self {
             return
         }
-        guard isLingering else { return }
-        Self.log.info("newer instance started; retiring this detached view")
+        let posterDisplay = (note.userInfo?[Self.displayKey] as? NSNumber)?.uint32Value
+        let supersededOnSameScreen = posterDisplay != nil && posterDisplay == displayNumber
+        guard isLingering || supersededOnSameScreen else { return }
+        let reason = isLingering ? "detached" : "superseded on this display"
+        Self.log.info("newer instance started; retiring this view (\(reason))")
         stopEngine()
         removeFromSuperview()
+    }
+
+    /// `CGDirectDisplayID` of the screen this view is on, if any.
+    private var displayNumber: UInt32? {
+        guard let screen = window?.screen,
+              let number = screen.deviceDescription[
+                NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
+            return nil
+        }
+        return number.uint32Value
     }
 
     /// True when the host has detached this view: no window, or a window that
@@ -170,6 +318,7 @@ final class GibsonSaverView: ScreenSaverView {
 
         // wgpu needs the backing layer to exist before the surface is created.
         _ = layer
+        configuredLayer = layer as? CAMetalLayer
 
         // Renderer convention (mirrors the desktop host): pass the LOGICAL
         // size plus scale = backingScaleFactor x settings.render_scale; the
@@ -193,6 +342,19 @@ final class GibsonSaverView: ScreenSaverView {
             return
         }
         gibsonHandle = handle
+        engineStartedAt = CACurrentMediaTime()
+        hasBeenDisplayed = false
+        Self.register(self)
+        if let display = displayNumber {
+            // One engine per display, across activations: the host process
+            // never exits, so an older view's engine must not keep rendering
+            // under the new one.
+            if let existing = Self.ownerByDisplay[display]?.view, existing !== self {
+                existing.teardown(reason: "superseded on this display")
+            }
+            Self.ownerByDisplay[display] = Self.WeakViewRef(self)
+        }
+        ensureLayerDelegate()
         lastLogicalSize = logical
         lastScale = scale
         let created = "gibson_create ok (handle \(UInt(bitPattern: handle)), "
@@ -209,6 +371,8 @@ final class GibsonSaverView: ScreenSaverView {
             gibsonHandle = nil
             Self.log.info("gibson_destroy ok")
         }
+        Self.unregister(self)
+        hasBeenDisplayed = false
         frameFailures = 0
         lastLogicalSize = .zero
         lastScale = 0
@@ -230,6 +394,11 @@ final class GibsonSaverView: ScreenSaverView {
         nextStatsLog = CACurrentMediaTime() + 2
         lastPresented = 0
         lastSkipped = 0
+        lastTimeout = 0
+        lastOccluded = 0
+        frameTimeTotal = 0
+        frameTimeCount = 0
+        lastStatsWallClock = CACurrentMediaTime()
         Self.log.info("render loop started")
     }
 
@@ -240,7 +409,23 @@ final class GibsonSaverView: ScreenSaverView {
 
     @objc private func renderTick(_ link: CADisplayLink) {
         guard let handle = gibsonHandle else { return }
-        let code = gibson_frame(handle, CACurrentMediaTime())
+        // Lifecycle gate (never occlusion): a view with no window, or a window
+        // the host has ordered out, must stop rendering and destroy its engine.
+        let displayed = window != nil && (window?.isVisible ?? false)
+        if !displayed {
+            let grace = !hasBeenDisplayed && CACurrentMediaTime() - engineStartedAt < 2
+            if !grace {
+                teardown(reason: "view detached")
+                return
+            }
+            return
+        }
+        hasBeenDisplayed = true
+        ensureLayerDelegate()
+        let started = CACurrentMediaTime()
+        let code = gibson_frame(handle, started)
+        frameTimeTotal += CACurrentMediaTime() - started
+        frameTimeCount += 1
         if code == 0 {
             frameFailures = 0
             framesRendered += 1
@@ -260,32 +445,81 @@ final class GibsonSaverView: ScreenSaverView {
         logFrameStats(handle: handle)
     }
 
+    /// Keep the nil-window delegate installed on the render layer. AppKit owns
+    /// the backing layer's delegate and reinstalls itself when the layer is
+    /// attached, so this runs before every frame (one pointer comparison).
+    private func ensureLayerDelegate() {
+        guard let metalLayer = layer as? CAMetalLayer, metalLayer.delegate !== layerDelegate else {
+            return
+        }
+        metalLayer.delegate = layerDelegate
+        Self.log.info("reinstalled nil-window layer delegate")
+    }
+
     /// Periodic evidence that pixels are actually being presented, taken from
     /// the renderer's own counters (a callback that skipped a frame is not a
-    /// rendered frame).
+    /// rendered frame), plus the window/layer facts needed to explain a black
+    /// screen: whether the layer wgpu configured is still the view's layer,
+    /// whether that layer can produce drawables, and where the window sits.
     private func logFrameStats(handle: UnsafeMutableRawPointer) {
         let now = CACurrentMediaTime()
         guard now >= nextStatsLog else { return }
         nextStatsLog = now + 5
+
+        if SaverSettings.shared.debugLayerFill {
+            // Keep whichever layer is current painted red, so a layer swap by
+            // the host cannot hide the diagnostic.
+            (layer as? CAMetalLayer)?.backgroundColor = NSColor.red.cgColor
+        }
+
         var presented: UInt64 = 0
         var skipped: UInt64 = 0
-        let code = gibson_present_stats(handle, &presented, &skipped)
-        guard code == 0 else {
-            Self.log.error("gibson_present_stats failed (\(code))")
-            return
-        }
+        let statsCode = gibson_present_stats(handle, &presented, &skipped)
+        var timeouts: UInt64 = 0
+        var occluded: UInt64 = 0
+        _ = gibson_skip_breakdown(handle, &timeouts, &occluded)
+
         let deltaPresented = presented - lastPresented
         let deltaSkipped = skipped - lastSkipped
+        let deltaTimeout = timeouts - lastTimeout
+        let deltaOccluded = occluded - lastOccluded
         lastPresented = presented
         lastSkipped = skipped
-        // Window state is reported, never used as a gate: it tells a black
-        // screen apart from a slow one (a window the WindowServer does not
-        // scan out yields no Metal drawables, so every frame is skipped).
-        let windowVisible = window?.isVisible ?? false
-        let windowOnScreen = window?.occlusionState.contains(.visible) ?? false
-        let line = "frames presented=\(deltaPresented) skipped=\(deltaSkipped) "
-            + "(total presented=\(presented)) windowVisible=\(windowVisible) "
-            + "windowOnScreen=\(windowOnScreen)"
+        lastTimeout = timeouts
+        lastOccluded = occluded
+
+        let elapsed = lastStatsWallClock > 0 ? now - lastStatsWallClock : 5
+        lastStatsWallClock = now
+        let fps = elapsed > 0 ? Double(deltaPresented) / elapsed : 0
+        let msPerFrame = frameTimeCount > 0
+            ? (frameTimeTotal / Double(frameTimeCount)) * 1000 : 0
+        frameTimeTotal = 0
+        frameTimeCount = 0
+        let currentLayer = layer as? CAMetalLayer
+        let sameLayer = currentLayer != nil && currentLayer === configuredLayer
+        let drawable = currentLayer?.drawableSize ?? .zero
+        let layerDevice = currentLayer?.device != nil
+        let layerAttached = currentLayer?.superlayer != nil
+        let window = self.window
+        let level = window?.level.rawValue ?? 0
+        let onActiveSpace = window?.isOnActiveSpace ?? false
+        let windowNumber = window?.windowNumber ?? -1
+        let screenFrame = window?.screen?.frame ?? .zero
+        let pacing = "fps=\(String(format: "%.1f", fps)) "
+            + "msPerFrame=\(String(format: "%.1f", msPerFrame)) "
+        let line = pacing + "frames presented=\(deltaPresented) skipped=\(deltaSkipped) "
+            + "(total presented=\(presented), stats=\(statsCode)) "
+            + "skipTimeout=\(deltaTimeout) skipOccluded=\(deltaOccluded) "
+            + "windowVisible=\(window?.isVisible ?? false) "
+            + "key=\(window?.isKeyWindow ?? false) main=\(window?.isMainWindow ?? false) "
+            + "screenAttached=\(window?.screen != nil) "
+            + "occlusionVisible=\(window?.occlusionState.contains(.visible) ?? false) "
+            + "level=\(Int(level)) onActiveSpace=\(onActiveSpace) windowNumber=\(windowNumber) "
+            + "screen=\(Int(screenFrame.width))x\(Int(screenFrame.height)) "
+            + "view=\(Int(bounds.width))x\(Int(bounds.height))@\(Int(bounds.origin.x)),\(Int(bounds.origin.y)) "
+            + "layerSameAsCreated=\(sameLayer) drawable=\(Int(drawable.width))x\(Int(drawable.height)) "
+            + "layerDevice=\(layerDevice) layerAttached=\(layerAttached) "
+            + "instance=\(instanceToken.uuidString.prefix(8))"
         Self.log.info("\(line, privacy: .public)")
     }
 
