@@ -9,9 +9,9 @@ struct FrameUniform {
     prev_view_proj: mat4x4<f32>,
     inv_view_proj: mat4x4<f32>,
     camera_pos: vec4<f32>,
-    tower_body: vec4<f32>,
-    tower_text: vec4<f32>,
-    highlight: vec4<f32>,
+    tower_body_normal: vec4<f32>,
+    tower_text_normal: vec4<f32>,
+    highlight_normal: vec4<f32>,
     floor_trace: vec4<f32>,
     floor_pad: vec4<f32>,
     pulse: vec4<f32>,
@@ -19,11 +19,20 @@ struct FrameUniform {
     time_fog_grid: vec4<f32>,
     resolution: vec4<f32>,
     fx: vec4<f32>,
+    post: vec4<f32>,
+    tower_body_siege: vec4<f32>,
+    tower_text_siege: vec4<f32>,
+    highlight_siege: vec4<f32>,
+    signal: vec4<f32>,
 }
 @group(0) @binding(0) var<uniform> u: FrameUniform;
 @group(0) @binding(1) var color_tex: texture_2d<f32>;
 @group(0) @binding(2) var color_smp: sampler;
-@group(0) @binding(3) var depth_tex: texture_depth_2d;
+// The depth the frame was drawn with, carried in a colour attachment rather than read from the
+// depth texture: `textureLoad` on `texture_depth_2d` has no GLSL equivalent, so fetching it
+// directly compiles on Metal/Vulkan/DX12/WebGPU and fails on the WebGL2 fallback. Read with
+// `textureLoad` at the same integer texel as before, so the values are unchanged.
+@group(0) @binding(3) var depth_tex: texture_2d<f32>;
 
 const MAX_VEL_PX: f32 = 20.0;
 const TAPS: i32 = 8;
@@ -51,7 +60,7 @@ fn vs_main(in: VsIn) -> VsOut {
 @fragment
 fn fs_main(in: FsIn) -> @location(0) vec4<f32> {
     let uv = in.uv;
-    let depth = textureLoad(depth_tex, vec2<i32>(in.pos.xy), 0);
+    let depth = textureLoad(depth_tex, vec2<i32>(in.pos.xy), 0).r;
     if (depth >= 1.0) {
         return textureSampleLevel(color_tex, color_smp, uv, 0.0);
     }

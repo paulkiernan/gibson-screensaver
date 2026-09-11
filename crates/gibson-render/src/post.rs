@@ -12,9 +12,11 @@ use std::collections::HashMap;
 pub struct Post {
     pub motion_bgl: wgpu::BindGroupLayout,
     pub composite_bgl: wgpu::BindGroupLayout,
+    pub crt_bgl: wgpu::BindGroupLayout,
     pub sampler: wgpu::Sampler,
     motion: wgpu::RenderPipeline,
     composites: HashMap<wgpu::TextureFormat, wgpu::RenderPipeline>,
+    crts: HashMap<wgpu::TextureFormat, wgpu::RenderPipeline>,
     tri: wgpu::Buffer,
 }
 
@@ -69,7 +71,9 @@ impl Post {
                     binding: 3,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Depth,
+                        // The depth carry, not the depth texture: `R32Float` is not filterable and
+                        // the shader only ever `textureLoad`s it.
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
                         view_dimension: wgpu::TextureViewDimension::D2,
                         multisampled: false,
                     },
@@ -98,6 +102,16 @@ impl Post {
         });
         let tri = fs_triangle(device, "gibson-post-tri");
 
+        // The CRT pass reads the signal buffer with explicit `textureLoad`s (nearest by
+        // construction), so its bind group is just the uniform plus the texture.
+        let crt_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("gibson-crt-bgl"),
+            entries: &[
+                uniform_binding(wgpu::ShaderStages::FRAGMENT),
+                texture_binding(1, wgpu::ShaderStages::FRAGMENT, false),
+            ],
+        });
+
         let motion_layout = crate::util::pipeline_layout(device, "gibson-motion-layout", &motion_bgl);
         let composite_layout =
             crate::util::pipeline_layout(device, "gibson-composite-layout", &composite_bgl);
@@ -122,12 +136,17 @@ impl Post {
                 HDR_FORMAT,
             ),
         );
+        // The CRT pass writes the final target only, so its pipelines are cached per output
+        // format exactly like the composite's.
+        let crts = HashMap::new();
         Post {
             motion_bgl,
             composite_bgl,
+            crt_bgl,
             sampler,
             motion,
             composites,
+            crts,
             tri,
         }
     }
@@ -154,6 +173,22 @@ impl Post {
 
     pub fn motion(&self) -> &wgpu::RenderPipeline {
         &self.motion
+    }
+
+    /// The CRT pass's pipeline for a given final output format (cached).
+    pub fn crt_pipeline(
+        &mut self,
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+    ) -> &wgpu::RenderPipeline {
+        if !self.crts.contains_key(&format) {
+            let layout =
+                crate::util::pipeline_layout(device, "gibson-crt-layout", &self.crt_bgl);
+            let pipeline =
+                make_pipeline(device, &layout, "gibson-crt", shaders::CRT, format);
+            self.crts.insert(format, pipeline);
+        }
+        &self.crts[&format]
     }
 
     pub fn triangle(&self) -> &wgpu::Buffer {
