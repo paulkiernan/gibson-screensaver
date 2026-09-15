@@ -69,12 +69,22 @@
 #   nvidia-*.so            the driver itself
 #
 # All ten depends above were observed loaded, so the list is complete and
-# minimal for that configuration. What has still NOT been done is a build in a
-# clean chroot and a namcap run, which is what would catch a dependency that
-# only a different driver stack pulls in. Do that before pushing an update:
+# minimal for that configuration.
 #
-#   namcap PKGBUILD
-#   namcap gibson-screensaver-*.pkg.tar.zst
+# The clean-environment build and the namcap run this comment used to ask for
+# are now automated: .github/workflows/aur.yml builds both packages inside an
+# `archlinux:base-devel` container - which has only the declared dependencies
+# installed, so a missing one fails there instead of passing on a machine that
+# happened to have the library - verifies every source digest against the
+# published bytes, and runs namcap on the PKGBUILD and on the built package.
+# Nothing is pushed to the AUR unless all of that passes.
+#
+# namcap's verdict, so the expected output is on record: warnings only, no
+# errors. It reports every entry from libx11 down as "Dependency included, but
+# may not be needed" and flags gcc-libs as "implicitly satisfied" by libgcc.
+# Both are the dlopen blindness described above, not a finding - namcap reads
+# ELF headers, and this binary declares nothing beyond libgcc_s/libm/libc.
+# That is why the workflow fails on namcap errors and prints its warnings.
 #
 # Deliberately NOT in depends: libglvnd. wgpu's GLES backend is compiled into
 # the binary and can dlopen libEGL.so.1, but the native code asks for
