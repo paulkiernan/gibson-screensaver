@@ -21,13 +21,17 @@
 # for <config-dir>/<basename>.xml. Renaming either half breaks the option sheet
 # in the settings dialog. Do not "tidy" this back to `gibson`.
 #
-# ── Upstream status: read this as "not yet verified on real hardware" ──────
+# ── Upstream status: verified on real hardware ─────────────────────────────
 # The X11 / xscreensaver host is smoke-tested in CI on every push: it adopts a
 # real X window under Xvfb with a software Vulkan rasteriser (lavapipe), via
 # both $XSCREENSAVER_WINDOW and --window-id, and asserts a nonzero presented
-# frame count on exit (a recorded run presented 258 frames). That is a software
-# rasteriser under a headless X server: it is not verified on real hardware with
-# a real GPU driver, and not verified under the xscreensaver daemon itself.
+# frame count on exit. Beyond CI, it has now been run on real hardware: Arch
+# Linux, NVIDIA GeForce GTX 1080 with the proprietary 580.159.04 driver,
+# Vulkan backend. Both launch paths presented frames (384 and 346 in a recorded
+# run), and the real xscreensaver daemon drove the hack in a nested X server
+# with the rendered frame captured off the screen. Still uncovered: multi-GPU /
+# hybrid setups, real multi-head Xinerama/RANDR layouts, and non-NVIDIA drivers
+# on hardware.
 #
 # ── depends: read out of the code, not copied from a template ──────────────
 # The released Linux binary links almost nothing. `readelf -d` (checked with
@@ -51,13 +55,23 @@
 #                     because winit enables `wayland-dlopen`
 #   vulkan-icd-loader libvulkan.so.1, dlopened by ash's `loaded` feature
 #
-# Confidence in these entries is high, but note what "verified" means here: the
-# dlopen call sites were read in the exact crate versions Cargo.lock pins
-# (x11-dl 2.21.0, x11rb 0.13.2, xkbcommon-dl 0.4.2, wayland-sys 0.31.11,
-# ash 0.38.0, wgpu-hal 30.0.1), and each soname -> package mapping was checked
-# against that package's published file list on archlinux.org. What has NOT
-# been done is a build in a clean chroot, so the dependency set is not
-# confirmed complete or minimal by namcap. Do that before pushing to the AUR:
+# Confidence in these entries is now backed by measurement rather than reading
+# alone. On the Arch machine above, this package was built with makepkg and the
+# resulting binary was run under both a Wayland and an X11 session while its
+# /proc/<pid>/maps was captured; every shared object it actually loaded was
+# mapped to its owning package with `pacman -Qo`, and every one of them is
+# either inside the dependency closure of the ten entries above (`pactree -u`)
+# or supplied by the Vulkan driver, which is an optdepend rather than a depend:
+#
+#   libdrm, systemd-libs   pulled in by the installed NVIDIA driver package
+#   libdbus-1.so.3         dlopen()ed by libnvidia-glcore.so; the gibson binary
+#                          contains no reference to dbus at all
+#   nvidia-*.so            the driver itself
+#
+# All ten depends above were observed loaded, so the list is complete and
+# minimal for that configuration. What has still NOT been done is a build in a
+# clean chroot and a namcap run, which is what would catch a dependency that
+# only a different driver stack pulls in. Do that before pushing an update:
 #
 #   namcap PKGBUILD
 #   namcap gibson-screensaver-*.pkg.tar.zst
@@ -80,7 +94,7 @@
 pkgname=gibson-screensaver
 pkgver=2.1.1
 pkgrel=1
-pkgdesc='Rust/wgpu recreation of the Gibson tower-city flythrough from Hackers (1995); also an xscreensaver hack (host smoke-tested in CI on a software rasteriser, not on real hardware)'
+pkgdesc='Rust/wgpu recreation of the Gibson tower-city flythrough from Hackers (1995); also an xscreensaver hack'
 arch=('x86_64')
 url='https://github.com/paulkiernan/gibson-screensaver'
 license=('GPL-3.0-or-later')

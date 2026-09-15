@@ -17,17 +17,20 @@
 # same hand-derived `depends` is carried over (../aur/PKGBUILD explains each
 # entry). This one has likewise NOT been checked in a clean chroot.
 #
-# ── Upstream status: read this as "not yet verified on real hardware" ──────
+# ── Upstream status: verified on real hardware ─────────────────────────────
 # The X11 / xscreensaver host is smoke-tested in CI on every push, under Xvfb
-# with Mesa lavapipe, via both $XSCREENSAVER_WINDOW and --window-id. That is a
-# software rasteriser under a headless X server: it is not verified on real
-# hardware with a real GPU driver, and not verified under the xscreensaver
-# daemon itself.
+# with Mesa lavapipe, via both $XSCREENSAVER_WINDOW and --window-id. Beyond
+# that it has been run on real hardware - Arch Linux, NVIDIA GTX 1080 with the
+# proprietary 580.159.04 driver, Vulkan - through both launch paths and under
+# the real xscreensaver daemon. The runtime library set was also confirmed by
+# capturing /proc/<pid>/maps of the running binary; see ../aur/PKGBUILD. Still
+# uncovered: multi-GPU / hybrid setups, real multi-head Xinerama/RANDR
+# layouts, and non-NVIDIA drivers on hardware.
 
 pkgname=gibson-screensaver-bin
 pkgver=2.1.1
 pkgrel=1
-pkgdesc='Rust/wgpu recreation of the Gibson tower-city flythrough from Hackers (1995); prebuilt xscreensaver hack (host smoke-tested in CI on a software rasteriser, not on real hardware)'
+pkgdesc='Rust/wgpu recreation of the Gibson tower-city flythrough from Hackers (1995); prebuilt xscreensaver hack'
 arch=('x86_64')
 url='https://github.com/paulkiernan/gibson-screensaver'
 license=('GPL-3.0-or-later')
