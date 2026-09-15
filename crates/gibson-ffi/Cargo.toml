@@ -18,9 +18,17 @@ wgpu = { workspace = true }
 serde_json = { workspace = true }
 pollster = { workspace = true }
 log = { workspace = true, features = ["std"] }
+
 # os_log sink for the `log` facade (forward Rust-side diagnostics to the
 # unified log); default features (logger/dashmap) unused - we hand-roll a
 # two-line Log impl over oslog::OsLog.
+#
+# Target-conditional because oslog's build script compiles a C wrapper that
+# includes <os/log.h>: an unconditional dependency here fails the build of the
+# whole workspace on Linux and Windows, which is what kept `make check` from
+# running anywhere but macOS. The crate body is cfg'd out on those hosts
+# (src/lib.rs), so nothing references this.
+[target.'cfg(target_os = "macos")'.dependencies]
 oslog = { version = "0.2", default-features = false }
 
 # Opt into the root Cargo.toml's [workspace.lints] policy: one place sets levels, so a local
