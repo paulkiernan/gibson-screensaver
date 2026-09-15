@@ -246,13 +246,15 @@ the descriptor the tarball ships. Full steps, the collision explained, and
 the settings-dialog note are in
 [platform/linux/README.md](platform/linux/README.md).
 
-**Smoke-tested in CI, not verified on real hardware.** CI creates a real X
-window under Xvfb, hands its id to the binary through `XSCREENSAVER_WINDOW`
-the way xscreensaver does, and asserts that frames were actually presented
-before the window is destroyed — but through a software Vulkan rasteriser, on
-a headless X server. Driver behaviour with a real GPU is still untested. The
-host is also X11 only: on a Wayland session use `swayidle` plus
-`gibson-app --fullscreen` instead (see the same file for the exact command).
+**Verified on real hardware.** Run on Arch Linux with a real GPU (NVIDIA
+GeForce GTX 1080, proprietary driver 580.159.04, Vulkan): both xscreensaver
+launch paths adopt the window and present frames, and the real `xscreensaver`
+daemon drives it in a nested X server. CI additionally runs the same smoke test
+under Xvfb with a software rasteriser on every push. The host is X11 only: on a
+Wayland session use `swayidle` plus `gibson-app --fullscreen` instead (see the
+same file for the exact command). The per-run numbers and what is still
+uncovered are in
+[platform/linux/README.md](platform/linux/README.md#status).
 
 ### Desktop app (any platform)
 
@@ -297,14 +299,12 @@ A windowed flythrough opens; press Esc or Q to quit. Useful flags (see
 ```
 
 **Platform status, stated plainly:** the macOS saver, the Windows `.scr`, the
-desktop app, and the web build have all been run on real hardware. The Linux
-xscreensaver host is **smoke-tested in CI under Xvfb with a software Vulkan
-rasteriser, and not verified on real hardware with a real GPU**: CI proves
-that the binary adopts an X11 window handed to it the way xscreensaver does,
-presents frames, and exits when the window goes away, but a software adapter
-under a headless X server cannot stand in for a real driver. Treat it as
-tested-but-inexperienced, and see `platform/linux/README.md` for what the
-smoke test does and does not cover.
+desktop app, the web build, and — as of the runs recorded in
+[platform/linux/README.md](platform/linux/README.md#status) — the Linux
+xscreensaver host have all been run on real hardware. For Linux that means a
+real GPU driver and the real xscreensaver daemon, not just CI's software
+rasteriser under Xvfb. What is still untested there: multi-GPU/hybrid setups,
+real multi-head Xinerama/RANDR layouts, and non-NVIDIA drivers on hardware.
 
 ## Settings
 

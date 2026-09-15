@@ -89,33 +89,83 @@ or run `gibson-app --fullscreen` manually and quit with Esc or Q.
 
 ## Status
 
-**Smoke-tested in CI under Xvfb with a software rasteriser; not verified on
-real hardware with a real GPU.** CI runs
-[`smoke-test.sh`](smoke-test.sh), which covers both ways a hack is launched:
-it creates a real X window and hands its id to the built binary through
-`XSCREENSAVER_WINDOW` the way the daemon does, then does it again with
-`--window-id <id>` the way the settings dialog's preview does. Each case must
-adopt the window, present at least one frame (asserted from the renderer's own
-presented-frame counter, not from "it did not crash"), and exit cleanly when
-the window is destroyed. The script also checks the descriptor against the
-binary: the name matches the installed basename, there is no `<command>`
-element, every slider arg has its `%` value placeholder, and every switch the
-descriptor can emit is accepted by `--help`. All of that is a software adapter
-under a headless X server, so it says nothing about GPU driver behaviour, real
-Xinerama/RANDR setups, or the xscreensaver daemon itself. If it fails on your
-machine, report the `RUST_LOG=info XSCREENSAVER_WINDOW=<xid> gibson-screensaver`
-log output.
+**Verified on real hardware with a real GPU, and under the real xscreensaver
+daemon.** The machine was Arch Linux on kernel 7.0.9-zen2-1-zen, in a
+KDE/Wayland session with XWayland, and the GPU was a GeForce GTX 1080 on
+NVIDIA's proprietary 580.159.04 driver - so wgpu picked its Vulkan backend on a
+discrete adapter. What that run showed, with the numbers, because "it works on
+my machine" is not worth much without them:
+
+- `smoke-test.sh`, both launch paths: the window was adopted and 384 and 346
+  frames were presented, none skipped, and the process exited on its own when
+  the window went away.
+- The same test against the prebuilt release asset rather than a local build:
+  241 and 249 frames.
+- `xscreensaver-daemon-test.sh`: the real `xscreensaver` binary forked the hack
+  onto a window of its own, the hack adopted it, and a capture of the nested
+  screen held 439,562 distinct colours. That last number is the interesting
+  one - it is what distinguishes a saver that drew from a saver that came up
+  black.
+- Offscreen `--snapshot` at 1280x720: 600 frames stepped, 491,868 colours.
+- `cargo test --workspace --exclude gibson-web`: 119 tests, which here includes
+  the `gibson-core` and `gibson-render` tests that want a graphics adapter and
+  skip themselves when there is none.
+
+CI still runs [`smoke-test.sh`](smoke-test.sh) under Xvfb with a software
+rasteriser on every push, which is what catches regressions; it covers both
+ways a hack is launched: it creates a real X window and hands its id to the
+built binary through `XSCREENSAVER_WINDOW` the way the daemon does, then does
+it again with `--window-id <id>` the way the settings dialog's preview does.
+Each case must adopt the window, present at least one frame (asserted from the
+renderer's own presented-frame counter, not from "it did not crash"), and exit
+cleanly when the window is destroyed. The script also checks the descriptor
+against the binary: the name matches the installed basename, there is no
+`<command>` element, every slider arg has its `%` value placeholder, and every
+switch the descriptor can emit is accepted by `--help`.
+
+Still not covered by either: multi-GPU and Optimus-style hybrid setups, real
+multi-head Xinerama/RANDR layouts (the runs above were single-screen), and
+non-NVIDIA drivers on real hardware. If it fails on your machine, report the
+`RUST_LOG=info XSCREENSAVER_WINDOW=<xid> gibson-screensaver` log output.
+
+### Known limitation: the X11 backend forced on a Wayland session
+
+Running `--fullscreen` with the X11 backend *forced* on a Wayland session
+(`WAYLAND_DISPLAY` unset while `DISPLAY` points at XWayland) never presents a
+frame: the surface comes back `Outdated` from every acquire, and the app exits
+with `first frame failed: ... surface acquire failed after reconfigure`. This
+needs no workaround in practice and none is applied:
+
+- on a Wayland session winit selects the Wayland backend by itself, and
+  `--fullscreen` there runs at full rate;
+- on a real X11 session the X11 backend's `--fullscreen` runs at full rate
+  (checked against a nested Xephyr server, 51 fps, 0 skipped);
+- the xscreensaver host path is unaffected either way, because xscreensaver
+  hands over a window instead of asking for a fullscreen one.
+
+The fast, explicit failure is deliberate: a screensaver that draws nothing must
+say so rather than show a black screen.
 
 ## Testing it yourself
 
-With any X server running (an Xvfb instance is enough):
+Two `make` targets, both of which build the release binary first:
 
-    cargo build --release -p gibson-app
-    bash platform/linux/smoke-test.sh target/release/gibson-app
+    make smoke-linux    # the CI runtime test: needs $DISPLAY, a C compiler, a Vulkan driver
+    make daemon-linux   # the real daemon, in a nested X server: needs xscreensaver + Xephyr
 
-The script compiles a tiny X client (`x11-test-window.c`), has it create and
-map a window, prints the window id, runs the hack against that window twice
-(once through the environment, once through `--window-id`), destroys the
-window, and checks that the hack exited cleanly after presenting frames. It
-prints the window id, the adapter line, and the presented/skipped counters
-either way, and exits non-zero with the hack's whole log on any failure.
+`smoke-linux` runs [`smoke-test.sh`](smoke-test.sh), which compiles a tiny X
+client (`x11-test-window.c`), has it create and map a window, prints the window
+id, runs the hack against that window twice (once through the environment, once
+through `--window-id`), destroys the window, and checks that the hack exited
+cleanly after presenting frames. It prints the window id, the adapter line, and
+the presented/skipped counters either way, and exits non-zero with the hack's
+whole log on any failure. Any X server will do, including an Xvfb instance —
+note that the test window is `override_redirect`, like xscreensaver's own saver
+window, so it does not depend on a window manager being present or absent.
+
+`daemon-linux` runs [`xscreensaver-daemon-test.sh`](xscreensaver-daemon-test.sh),
+which is the only test that involves xscreensaver itself: it starts a nested X
+server, points a throwaway `$HOME` at a `~/.xscreensaver` whose `programs:` line
+is just `gibson-screensaver`, lets the daemon fork the hack, and asserts that
+the hack adopted the window the daemon gave it and that the nested screen holds
+a real rendered frame.

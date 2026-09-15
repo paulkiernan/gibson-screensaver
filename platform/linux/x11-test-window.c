@@ -96,22 +96,47 @@ main (int argc, char **argv)
 
   {
     int screen = DefaultScreen (dpy);
-    win = XCreateSimpleWindow (dpy, RootWindow (dpy, screen), 0, 0,
-                               width, height, 0,
-                               BlackPixel (dpy, screen),
-                               BlackPixel (dpy, screen));
+    /* override_redirect, for two reasons that happen to want the same bit:
+       it is what xscreensaver sets on its own saver window, so this stand-in
+       is faithful to the thing it imitates; and it takes the window manager
+       out of the path. A managed window is reparented and mapped by the WM,
+       which is why the IsViewable check below used to fail on any real
+       desktop session while passing under CI's window-manager-less Xvfb. */
+    XSetWindowAttributes attr;
+    attr.override_redirect = True;
+    attr.background_pixel = BlackPixel (dpy, screen);
+    attr.border_pixel = BlackPixel (dpy, screen);
+    win = XCreateWindow (dpy, RootWindow (dpy, screen), 0, 0, width, height, 0,
+                         CopyFromParent, InputOutput, CopyFromParent,
+                         CWOverrideRedirect | CWBackPixel | CWBorderPixel,
+                         &attr);
     XMapWindow (dpy, win);
     XSync (dpy, False);
   }
 
   {
     XWindowAttributes attrs;
-    if (!XGetWindowAttributes (dpy, win, &attrs))
+    int waited;
+
+    /* Mapping is a request, not a result: the XSync above only proves the
+       server processed it, not that the window came up. Poll the server's own
+       view of map_state rather than assuming, and bound the wait so a server
+       that never maps the window fails here instead of hanging. 5 s at 10 ms
+       is far longer than any local X server needs and still short enough to
+       fail fast. */
+    for (waited = 0; waited < 500; waited++)
       {
-        fprintf (stderr, "x11-test-window: cannot query window 0x%lx\n",
-                 (unsigned long) win);
-        return 3;
+        if (!XGetWindowAttributes (dpy, win, &attrs))
+          {
+            fprintf (stderr, "x11-test-window: cannot query window 0x%lx\n",
+                     (unsigned long) win);
+            return 3;
+          }
+        if (attrs.map_state == IsViewable)
+          break;
+        usleep (10000);
       }
+
     fprintf (stderr, "x11-test-window: window 0x%lx %ux%u depth %d visual 0x%lx\n",
              (unsigned long) win, attrs.width, attrs.height, attrs.depth,
              attrs.visual ? (unsigned long) XVisualIDFromVisual (attrs.visual) : 0UL);

@@ -41,12 +41,13 @@ before you push.
 
 | To do this | You need |
 | --- | --- |
-| Build anything | A Rust toolchain from rustup. `rust-toolchain.toml` pins one **exact version** (`1.98.1` as this is written), so rustup installs and selects it inside the repository automatically - never invoke `cargo +nightly` here. See [Bumping Rust](#bumping-rust). |
+| Build anything | A Rust toolchain pinned to one **exact version** (`1.98.1` as this is written) - never invoke `cargo +nightly` here. Two pins name it, and they have to agree: `rust-toolchain.toml` for rustup, `.tool-versions` for asdf (`asdf plugin add rust && asdf install`). Either tool selects it automatically inside the repository. Note that a distro `cargo` (Arch's `rust` package, say) reads *neither* file and will use whatever version it is. See [Bumping Rust](#bumping-rust). |
 | Format and lint the way CI does | `rustup component add rustfmt clippy` |
 | Build the web bundle | `rustup target add wasm32-unknown-unknown`, then `cargo install wasm-pack --locked`. CI installs the prebuilt wasm-pack 0.15.0. |
 | Build a universal macOS screen saver (arm64 + x86_64) | `rustup target add aarch64-apple-darwin x86_64-apple-darwin`, on macOS |
 | Build the macOS screen saver at all | Command Line Tools: `xcode-select --install`. **Xcode is not required.** `platform/macos/Makefile` compiles the Rust staticlib, links the Swift host with `swiftc`, `lipo`s the slices together, wraps the `.saver` bundle and ad-hoc signs it. |
-| Build on Linux | `libx11-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev` (winit's wayland stack needs the headers at build time; x11-dl dlopens libX11 at runtime), plus a Vulkan driver to run anything - wgpu's native backend set on Linux is Vulkan only. |
+| Build on Linux | Debian/Ubuntu: `libx11-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev`. Arch: those headers come with `libx11 libxkbcommon libxkbcommon-x11 wayland`, which a desktop install already has. Either way winit's wayland stack needs the headers at build time (x11-dl dlopens libX11 at runtime), plus a Vulkan driver to run anything - wgpu's native backend set on Linux is Vulkan only, so a machine with no GPU driver needs `mesa-vulkan-drivers` (Debian) or `vulkan-swrast` (Arch). |
+| Run the Linux runtime tests | `make smoke-linux` needs an X server on `$DISPLAY` (an `xvfb-run` wrapper is enough), a C compiler and `python3`. `make daemon-linux` additionally needs `xscreensaver` and `Xephyr` (Arch: `xorg-server-xephyr`), and uses ImageMagick for its pixel check when present. |
 | Keep `target/` from eating your disk | `CARGO_PROFILE_DEV_DEBUG=line-tables-only`. Debug info, not the test binaries, is what costs gigabytes; line tables are all a backtrace needs. `make check` sets it for you. |
 
 The saver defaults to `ARCHS="arm64 x86_64"`; if you have only one of the two
@@ -369,8 +370,17 @@ arrives once, in a commit whose whole subject is the bump.
 
 So bumping is a deliberate change, and it is more than editing one line:
 
-1. `rustup toolchain install <version> --component rustfmt,clippy`, then set
-   `channel` in `rust-toolchain.toml` to that version.
+1. Install the toolchain and point **both** pins at it. `rust-toolchain.toml`'s
+   `channel` is what rustup reads; `.tool-versions` is what asdf reads. They
+   MUST name the same version - that is the one drift this repository can have
+   between two contributors' shells:
+
+   ```sh
+   # rustup
+   rustup toolchain install <version> --component rustfmt,clippy
+   # or asdf
+   asdf install rust <version> && asdf local rust <version>
+   ```
 2. Run the whole gate: `make fmt-check`, `make lint`, `make lint-wasm`,
    `make check`, and the snapshot command from "Deterministic stills" with the
    same `--seed`. A new compiler is a change to the program that renders the
@@ -379,13 +389,25 @@ So bumping is a deliberate change, and it is more than editing one line:
    it narrowly with a comment saying why the lint is wrong here.
 4. Check the new version is not ahead of what the packaging builds with. The AUR
    `PKGBUILD` is the only one of the three that compiles anything, and it uses
-   Arch's distro `cargo`, which does not read `rust-toolchain.toml` at all
-   (Arch ships this same version today); the Scoop and Homebrew manifests
-   download prebuilt release assets. A pin ahead of the distro compiler is a
-   broken build that CI cannot see.
+   whichever `cargo` the packager has: Arch's distro `cargo` does not read
+   `rust-toolchain.toml` at all, while a packager with rustup or asdf does get
+   the pin. The Scoop and Homebrew manifests download prebuilt release assets.
+   A pin ahead of the distro compiler is a build CI cannot see failing, so check
+   it rather than assume: as this is written Arch ships **1.95.0** while the pin
+   is **1.98.1**, and the package was confirmed to build on both - with the
+   distro compiler and with the pinned one - because nothing in the workspace
+   declares a `rust-version` or uses anything newer.
 
-Dependabot does not manage `rust-toolchain.toml`; it watches `Cargo.toml` and
-the workflows.
+   One trap worth knowing, because it produced a failed `makepkg` while this was
+   being checked: an asdf `rust` plugin with **no version set for the build
+   directory** puts a `rustc` shim on `PATH` that refuses to run
+   (`No version is set for command rustc`), which fails the build somewhere in
+   the middle of compiling dependencies. Either set a version there
+   (`ASDF_RUST_VERSION=<version>`) or build in a clean chroot, which is the
+   reason the Arch guidelines prefer chroots for packaging.
+
+Dependabot does not manage `rust-toolchain.toml` or `.tool-versions`; it watches
+`Cargo.toml` and the workflows.
 
 ### Commit messages: Conventional Commits, required
 

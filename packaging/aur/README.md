@@ -373,14 +373,22 @@ Stated at exactly the strength the evidence supports:
 - The X11 / xscreensaver host **is smoke-tested in CI** on every push. The CI
   job runs it under Xvfb with Mesa's lavapipe software Vulkan rasteriser, adopts
   a real X window, exercises **both** launch paths (`$XSCREENSAVER_WINDOW` and
-  `--window-id`), and asserts a nonzero presented-frame count on exit; a recorded
-  run presented **258 frames**.
-- It has **never run on real Linux hardware with a real GPU driver**, and has
-  never been driven by the xscreensaver daemon itself.
-- Someone's first real-hardware run is therefore a genuine first, and the reason
-  step 4 asks for a hand check of the installed binary rather than trusting the
-  build alone. `pkgdesc` carries the same caveat, so a user reading the AUR page
-  sees it too.
+  `--window-id`), and asserts a nonzero presented-frame count on exit.
+- It **has now run on real Linux hardware with a real GPU driver**, and **has**
+  been driven by the xscreensaver daemon itself: Arch Linux, NVIDIA GeForce GTX
+  1080 with the proprietary 580.159.04 driver, Vulkan backend. Both launch paths
+  presented frames (384 and 346 in a recorded run) and the real `xscreensaver`
+  daemon forked the hack onto its own window in a nested X server, with the
+  rendered frame captured off that screen. `make smoke-linux` and
+  `make daemon-linux` reproduce both.
+- This package was also **built with `makepkg` on that machine**, `check()`
+  included, and the runtime library set was confirmed by capturing
+  `/proc/<pid>/maps` of the running binary and mapping every loaded object to
+  its owning package — see the `depends` comment in the `PKGBUILD`.
+- What is still uncovered: a build in a **clean chroot**, a **namcap** run,
+  multi-GPU / hybrid setups, real multi-head Xinerama/RANDR layouts, and
+  non-NVIDIA drivers on hardware. Step 4's hand check of the installed binary
+  therefore still earns its place.
 
 ## Checking the two files agree
 

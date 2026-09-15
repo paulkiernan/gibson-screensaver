@@ -33,6 +33,13 @@
 //! lazily), so Rust-side messages appear in `log stream` next to the Swift
 //! `os.Logger` lines. Errors are additionally echoed to stderr, which is what
 //! a standalone harness inherits.
+//!
+//! The crate is macOS-only: it exists to be linked into the `.saver` bundle and
+//! its `oslog` sink needs Apple's `<os/log.h>`, so a non-macOS workspace build
+//! compiles an empty staticlib and this file is never compiled there. Without
+//! the gate below, `cargo test --workspace` cannot run on Linux or Windows at
+//! all — the same reason `gibson-web` is `#![cfg(target_arch = "wasm32")]`.
+#![cfg(target_os = "macos")]
 
 use std::ffi::{c_char, c_void, CStr};
 use std::io::Write as _;
