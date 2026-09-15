@@ -1,0 +1,18 @@
+# asdf's pin for this repository. It MUST name the same version as the
+# `channel` in rust-toolchain.toml, which is rustup's pin for the same thing:
+# two tools read two different files, and a contributor using the other one
+# would otherwise silently build with a different compiler than CI.
+# See "Bumping Rust" in CONTRIBUTING.md - both lines move in that one commit.
+#
+# Why pin at all: the lint levels in Cargo.toml's [workspace.lints] are `deny`,
+# so a newer Clippy can fail a build nobody touched. Why pin here as well as in
+# rust-toolchain.toml: asdf does not read rust-toolchain.toml, and a distro
+# `cargo` (Arch's `rust` package, for instance) reads neither.
+#
+#   asdf plugin add rust https://github.com/asdf-community/asdf-rust.git
+#   asdf install
+#
+# Note the asdf rust plugin installs a standalone toolchain, not rustup, so
+# `rustup target add ...` is not available under it; the wasm32 target and the
+# macOS cross targets need rustup (see CONTRIBUTING.md's Prerequisites).
+rust 1.98.1
