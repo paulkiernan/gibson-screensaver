@@ -70,15 +70,37 @@ jobs:
       - name: Clippy gibson-web for wasm32
         run: cargo clippy -p gibson-web --target wasm32-unknown-unknown --all-targets
       # Conventional Commits, on the commits this pull request adds. The range is
-      # `base...head` with three dots: it starts at the merge base, so the history from
-      # before the convention was adopted is never judged and no pull request fails on a
-      # message it did not write. See scripts/check-commit-messages.sh.
+      # `base...head` with three dots: it starts at the merge base, so no pull request
+      # fails on a message it did not write. See scripts/check-commit-messages.sh.
       - name: Check the commit messages this pull request adds
         if: github.event_name == 'pull_request'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: scripts/check-commit-messages.sh "$BASE_SHA...$HEAD_SHA"
+      # The same check on a push, because a pull request is not the only way a commit
+      # reaches a branch: every one of the 76 non-conforming subjects this repository
+      # used to carry arrived by a direct push to main, where nothing judged them. The
+      # whole history conforms now, and this is what keeps it that way.
+      #
+      # `github.event.before` is the branch tip before the push, so the range is exactly
+      # what the push added. It is all zeroes for a newly created branch and points at a
+      # discarded commit after a force push; in both cases there is no useful range, so
+      # the step falls back to judging the pushed commit alone.
+      - name: Check the commit messages this push adds
+        if: github.event_name == 'push'
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BEFORE_SHA:-}" ] || [ "$BEFORE_SHA" = 0000000000000000000000000000000000000000 ] \
+             || ! git cat-file -e "$BEFORE_SHA^{commit}" 2>/dev/null; then
+            echo "no usable previous tip - checking $AFTER_SHA on its own"
+            git log -1 --no-merges --format=%s "$AFTER_SHA" | scripts/check-commit-messages.sh
+          else
+            scripts/check-commit-messages.sh "$BEFORE_SHA..$AFTER_SHA"
+          fi
       # A squash merge takes the pull request title as the commit subject, so the title has
       # to be a Conventional Commit as well. The title arrives through the environment
       # rather than interpolated into the command line: it is contributor-controlled text.

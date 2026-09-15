@@ -421,8 +421,8 @@ type(scope): subject
 - Types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`,
   `ci`, `chore`, `revert`.
 - Scopes are the crate or host: `types`, `scene`, `atlas`, `floor`, `render`,
-  `core`, `app`, `web`, `ffi`, `macos`, `linux`, `windows`, plus `ci` and
-  `docs`. Omit the scope when a change is genuinely repo-wide.
+  `core`, `app`, `web`, `ffi`, `macos`, `linux`, `windows`, plus `packaging`,
+  `ci` and `docs`. Omit the scope when a change is genuinely repo-wide.
 - A breaking change puts `!` after the scope - or straight after the type when
   there is no scope, `feat!: ...` - and explains itself in a `BREAKING CHANGE:`
   footer. An amendment to the frozen `gibson-types` contract is precisely that
@@ -436,12 +436,27 @@ fix(web): stop the canvas rendering black, and report startup failures
 feat(floor): route nets planar with via-pair layer changes
 ```
 
-CI checks the shape, in the `lint` job. Three things about how it does it are
+**Every commit in this repository conforms, root included.** The convention was
+adopted part-way through the project's life, and for a while it was only
+enforced on pull requests - so 76 of 108 subjects did not follow it, including
+the original C++ history, a commit whose whole message was `f`, and a run of
+`Batch 0`..`Batch 3` from the Rust rewrite. The history was rewritten to fix
+that. Author, date and tree of every commit are unchanged; only subjects were
+reshaped, keeping the original wording wherever it already said the right
+thing.
+
+If you have an old clone, `git fetch --all --tags --force` and rebase your work
+onto the new `main`.
+
+CI checks the shape, in the `lint` job. Four things about how it does it are
 worth knowing, because they are what make it usable rather than annoying:
 
 - **It judges only the commits a pull request adds.** The range starts at the
-  merge base, so the history from before this convention was adopted is never in
-  it. A pull request cannot fail on a message it did not write.
+  merge base, so a pull request cannot fail on a message it did not write.
+- **It also judges what a push adds.** Direct pushes to a branch are how the
+  non-conforming subjects got in the first time; on a push the range is
+  `github.event.before..github.sha`, and a newly created or force-pushed branch
+  falls back to judging the pushed commit alone.
 - **The pull request title is checked too**, because a squash merge takes the
   title as the commit subject. Title it the way you would title the commit.
 - **An unknown type or scope is rejected with the allowed set in the failure
