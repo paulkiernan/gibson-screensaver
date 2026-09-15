@@ -79,12 +79,12 @@
 # published bytes, and runs namcap on the PKGBUILD and on the built package.
 # Nothing is pushed to the AUR unless all of that passes.
 #
-# namcap's verdict, so the expected output is on record: warnings only, no
-# errors. It reports every entry from libx11 down as "Dependency included, but
-# may not be needed" and flags gcc-libs as "implicitly satisfied" by libgcc.
-# Both are the dlopen blindness described above, not a finding - namcap reads
-# ELF headers, and this binary declares nothing beyond libgcc_s/libm/libc.
-# That is why the workflow fails on namcap errors and prints its warnings.
+# What namcap says about all this, so nobody re-reports it as a bug: warnings
+# only, no errors. It calls every entry from libx11 down "Dependency included,
+# but may not be needed", and says gcc-libs is "implicitly satisfied" by
+# libgcc. Both are the dlopen blindness above rather than a finding - namcap
+# reads ELF headers, and this binary declares nothing past libgcc_s/libm/libc.
+# Hence the workflow failing on namcap errors and only printing its warnings.
 #
 # Deliberately NOT in depends: libglvnd. wgpu's GLES backend is compiled into
 # the binary and can dlopen libEGL.so.1, but the native code asks for
@@ -102,7 +102,7 @@
 # not moved.
 
 pkgname=gibson-screensaver
-pkgver=2.1.1
+pkgver=2.1.2
 pkgrel=1
 pkgdesc='Rust/wgpu recreation of the Gibson tower-city flythrough from Hackers (1995); also an xscreensaver hack'
 arch=('x86_64')
@@ -145,7 +145,7 @@ optdepends=(
 )
 
 source=("$pkgname-$pkgver.tar.gz::https://github.com/paulkiernan/gibson-screensaver/archive/refs/tags/$pkgver.tar.gz")
-sha256sums=('c3d3f667f10432dd352532fdb2aa434ec2200dd48da2347193b9334b7725a6d8')
+sha256sums=('2d792936c551ec259a474fddf36af22ed0f511f3a198190886c2d1a58563b0fb')
 
 prepare() {
   cd "$pkgname-$pkgver"

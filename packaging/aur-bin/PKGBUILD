@@ -28,7 +28,7 @@
 # layouts, and non-NVIDIA drivers on hardware.
 
 pkgname=gibson-screensaver-bin
-pkgver=2.1.1
+pkgver=2.1.2
 pkgrel=1
 pkgdesc='Rust/wgpu recreation of the Gibson tower-city flythrough from Hackers (1995); prebuilt xscreensaver hack'
 arch=('x86_64')
@@ -72,10 +72,8 @@ source=(
   "gibson-screensaver-linux-x86_64-$pkgver.tar.gz::https://github.com/paulkiernan/gibson-screensaver/releases/download/$pkgver/gibson-screensaver-linux-x86_64.tar.gz"
   "LICENSE-$pkgver::https://raw.githubusercontent.com/paulkiernan/gibson-screensaver/$pkgver/LICENSE"
 )
-sha256sums=(
-  'f510a53b9f380089f07fdc02af2c5da8b089d303aabae6686962177080a3f6a9'
-  '0b383d5a63da644f628d99c33976ea6487ed89aaa59f0b3257992deac1171e6b'
-)
+sha256sums=('483ac51e5d17e8991cd6cdefe1e4deed83f4deecb1deb987566abef7ff894246'
+            '0b383d5a63da644f628d99c33976ea6487ed89aaa59f0b3257992deac1171e6b')
 
 package() {
   cd "$srcdir/gibson-screensaver-linux-x86_64"

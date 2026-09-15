@@ -72,6 +72,40 @@ only the push is skipped, with a notice saying why. The AUR host key is pinned
 in the workflow (`SHA256:RFzBCUItH9LZS0cKB5UE6ceAYhBD5C8GeOBip8Z11+4`), not
 accepted on first use.
 
+### Current state: blocked on step 1, deliberately not enabled
+
+> As of 2026-09-15 the AUR is not accepting new accounts:
+>
+> > New account registration is temporarily closed. Registration on the AUR is
+> > paused while we deal with a wave of automated account creation. [...]
+> > There's no manual registration queue [...]
+> > (HTTP 503)
+>
+> So step 1 cannot be completed yet and neither package is on the AUR. Nothing
+> in this repository is waiting on anything else: both packages validate and
+> build in CI today, and the names `gibson-screensaver` and
+> `gibson-screensaver-bin` are unclaimed.
+>
+> `AUR_SSH_PRIVATE_KEY` is intentionally **not** set while this lasts. The
+> secret is what turns the push on, and setting it before an account exists
+> would only turn every packaging commit red on an `ssh` permission denied that
+> CI cannot act on. With it unset the workflow ends green on the notice above.
+>
+> When registration reopens, [`enable-publishing.sh`](enable-publishing.sh) is
+> the rest of the work. It generates the key if it is missing, tells you which
+> public key to paste on the account, sets the secret once the key
+> authenticates, runs the workflow for real, and then checks that **both**
+> packages actually appeared on the AUR:
+>
+> ```sh
+> packaging/aur/enable-publishing.sh --check   # where things stand, changes nothing
+> packaging/aur/enable-publishing.sh           # do it
+> ```
+>
+> No code change is needed. The script does not poll the registration page -
+> Arch asks people not to, so watch `aur-general` or the Arch news feed
+> instead.
+
 ## `.SRCINFO` is generated, not hand-written
 
 Both `.SRCINFO` files were originally written by hand on macOS, where `makepkg`
@@ -97,18 +131,24 @@ workflow fails the build.
 
 ## Digests recorded in these files
 
-All measured by downloading the published bytes on 2026-09-11 and hashing them
-locally; the release's own `SHA256SUMS` gives the same asset digests.
+All measured with `updpkgsums` from the published bytes; the release's own
+`SHA256SUMS` gives the same asset digests, which is the cross-check.
 
 | Source in the `PKGBUILD`s | SHA256 |
 | --- | --- |
-| `.../archive/refs/tags/2.1.1.tar.gz` (source package) | `c3d3f667f10432dd352532fdb2aa434ec2200dd48da2347193b9334b7725a6d8` |
-| `.../releases/download/2.1.1/gibson-screensaver-linux-x86_64.tar.gz` (-bin) | `f510a53b9f380089f07fdc02af2c5da8b089d303aabae6686962177080a3f6a9` |
-| `.../raw/.../2.1.1/LICENSE` (-bin, the asset tarball has no licence file) | `0b383d5a63da644f628d99c33976ea6487ed89aaa59f0b3257992deac1171e6b` |
+| `.../archive/refs/tags/2.1.2.tar.gz` (source package) | `2d792936c551ec259a474fddf36af22ed0f511f3a198190886c2d1a58563b0fb` |
+| `.../releases/download/2.1.2/gibson-screensaver-linux-x86_64.tar.gz` (-bin) | `483ac51e5d17e8991cd6cdefe1e4deed83f4deecb1deb987566abef7ff894246` |
+| `.../raw/.../2.1.2/LICENSE` (-bin, the asset tarball has no licence file) | `0b383d5a63da644f628d99c33976ea6487ed89aaa59f0b3257992deac1171e6b` |
+
+The LICENSE digest is unchanged from 2.1.1, which is expected - the file did not
+change between the tags - and is a useful sign the value was measured rather
+than copied.
 
 `updpkgsums` re-measures these; run it after any `source` change. A force-retag
-(`git tag -f 2.1.1`) makes GitHub regenerate the tag tarball and invalidates the
-first digest even though `pkgver` has not moved.
+(`git tag -f 2.1.2`) makes GitHub regenerate the tag tarball and invalidates the
+first digest even though `pkgver` has not moved. CI does not take these on
+trust: `makepkg --verifysource` in the AUR workflow re-downloads every source
+and fails on a mismatch.
 
 ## Package name
 

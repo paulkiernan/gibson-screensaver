@@ -1,6 +1,6 @@
 pkgbase = gibson-screensaver
 	pkgdesc = Rust/wgpu recreation of the Gibson tower-city flythrough from Hackers (1995); also an xscreensaver hack
-	pkgver = 2.1.1
+	pkgver = 2.1.2
 	pkgrel = 1
 	url = https://github.com/paulkiernan/gibson-screensaver
 	install = gibson-screensaver.install
@@ -23,7 +23,7 @@ pkgbase = gibson-screensaver
 	optdepends = vulkan-nouveau: Vulkan driver for NVIDIA GPUs (Nouveau)
 	optdepends = nvidia-utils: Vulkan driver for NVIDIA GPUs (proprietary)
 	optdepends = vulkan-swrast: software Vulkan rasteriser (lavapipe), for machines with no GPU driver
-	source = gibson-screensaver-2.1.1.tar.gz::https://github.com/paulkiernan/gibson-screensaver/archive/refs/tags/2.1.1.tar.gz
-	sha256sums = c3d3f667f10432dd352532fdb2aa434ec2200dd48da2347193b9334b7725a6d8
+	source = gibson-screensaver-2.1.2.tar.gz::https://github.com/paulkiernan/gibson-screensaver/archive/refs/tags/2.1.2.tar.gz
+	sha256sums = 2d792936c551ec259a474fddf36af22ed0f511f3a198190886c2d1a58563b0fb
 
 pkgname = gibson-screensaver
