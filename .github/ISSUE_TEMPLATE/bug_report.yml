@@ -6,15 +6,15 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for the report. The one thing that makes a bug here quickly
-        fixable is the log output for the host you saw it on - the "Log output"
-        field below says where each host keeps it.
+        Thanks for the report. The one thing that makes a bug here quick to fix is
+        the log output for the host you saw it on - the "Log output" field below
+        says where each host keeps it.
 
-        Please search the existing issues first: this is a small, spare-time
-        project, and several reports are already known.
+        Search the existing issues first: this is a small, spare-time project, and
+        several reports are already known.
 
         If the problem is "this does not look like the film", use the **Visual
-        fidelity** template instead - this project's visual standard is
+        fidelity** template instead - the visual standard here is
         docs/film-reference.md, and that template asks for the right evidence.
 
   - type: dropdown
@@ -47,8 +47,8 @@ body:
       label: OS, GPU, and driver
       description: |
         The renderer is graded on a real GPU, so the graphics stack matters more
-        here than the OS version. For the web build, name the browser and
-        version, and whether the page reported WebGPU or WebGL2.
+        here than the OS version. For the web build, name the browser and version,
+        and whether the page reported WebGPU or WebGL2.
       placeholder: "macOS 15.5, Apple M3 / Windows 11 24H2, RTX 4070, 560.94 / Ubuntu 24.04, Mesa 24.0.9 / Firefox 141, WebGL2 fallback"
     validations:
       required: true
@@ -78,9 +78,8 @@ body:
     attributes:
       label: Log output
       description: |
-        Where the log comes from depends on the host. Paste what you can get;
-        an empty field is much better filled with "nothing was logged" than left
-        blank, because that is itself a finding.
+        Where the log comes from depends on the host. Paste what you can get, and
+        say so if nothing was logged - that is itself a finding.
 
         - **Desktop app**: run it with logging on, e.g.
           `RUST_LOG=info cargo run --release -p gibson-app`. Output goes to stderr.
@@ -98,7 +97,7 @@ body:
           counters on exit.
         - **Web build**: the browser console (DevTools > Console), plus the text
           in the `#status` element if anything is shown on the page. A startup
-          failure is reported in both places by design.
+          failure is reported in both places.
       render: shell
     validations:
       required: false

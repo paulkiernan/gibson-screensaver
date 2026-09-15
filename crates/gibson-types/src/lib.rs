@@ -1,9 +1,9 @@
 //! Frozen shared type contracts for Hack the Gibson.
 //!
 //! This crate is the single contract every other crate compiles against. The public
-//! signatures, constant values and fields are frozen after the Scaffold batch: they change
-//! only in a dedicated serial amendment step, never concurrently with feature work, because
-//! every other crate compiles against them. This revision carries three such amendments:
+//! signatures, constant values and fields are frozen: they change only in a dedicated serial
+//! amendment step, never concurrently with feature work, because every other crate compiles
+//! against them. This revision carries three such amendments:
 //! per-tower siege blending ([`TowerInstance::siege_t`]), a darker normal tower body, and the
 //! widened [`FloorMap::data`] cell encoding. Everything else is unchanged.
 //!

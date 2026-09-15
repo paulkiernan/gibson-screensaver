@@ -1,12 +1,10 @@
 # Film reference — the Gibson
 
-This document is the **visual acceptance standard** for the Gibson tower-city
-flythrough. Every renderer decision — tower geometry and glass, text block
-layout, palettes, fog, floor traces, pulses, bloom, grain — is graded against
-what is described and linked here. It is not a cleanup or progress document;
-it is the project's record of what the 1995 film actually shows, gathered from
-directly observed frames and from interviews with the crew who built the
-sequences.
+This is the visual standard for the Gibson tower-city flythrough: what the film
+actually shows, and where I got it. Every renderer decision - tower geometry
+and glass, text block layout, palettes, fog, floor traces, pulses, bloom, grain
+- is graded against the frames and interviews gathered here: frames I have
+looked at closely, and the crew who built the sequences talking about how.
 
 Sources: Peter Chiang (VFX supervisor) and Tim Field (VFX producer)
 interviews at hackerscurator.com; frame captures at scifiinterfaces.com; and

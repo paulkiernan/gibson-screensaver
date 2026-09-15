@@ -1,7 +1,6 @@
 //! Camera rig: advances `s` along the closed flight loop and produces the per-frame pose
 //! (position, view direction, rolled up vector, fixed 58-degree vertical FOV), including the
-//! legacy low-passed bank-on-yaw algorithm ported from `GibsonSCNCamera.mm` (see
-//! `docs/legacy-banking.md`).
+//! legacy low-passed bank-on-yaw algorithm ported from the SceneKit fork's `GibsonSCNCamera.mm`.
 
 use gibson_types::{CameraPose, Settings};
 use glam::Vec3;

@@ -19,7 +19,7 @@ use highlights::Highlights;
 use pulses::PulsePool;
 use siege::SiegeSpread;
 
-/// Tower city and flight state. Fixed per-frame API (signatures frozen in Batch 0):
+/// Tower city and flight state. Fixed per-frame API:
 /// [`Scene::update`] advances to an absolute `time`, [`Scene::frame`] borrows the resulting
 /// buffers, and [`Scene::camera`] returns the current pose.
 pub struct Scene {

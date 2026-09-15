@@ -2,7 +2,7 @@ blank_issues_enabled: true
 contact_links:
   - name: Live demo
     url: https://paulkiernan.github.io/gibson-screensaver/
-    about: The deployed WebGPU/WebGL2 build. Query parameters change the settings, for example ?palette=cycle&grid=40.
+    about: The deployed build - WebGPU where the browser has it, WebGL2 everywhere else. Query parameters change the settings, for example ?palette=cycle&grid=40.
   - name: Install and settings reference
     url: https://github.com/paulkiernan/gibson-screensaver/blob/main/README.md
     about: How to install each host, every setting and its range, and the full command-line surface.

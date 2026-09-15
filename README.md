@@ -1,33 +1,35 @@
 # Hack the Gibson
 
-A screensaver and desktop toy that flies through the Gibson: the fictional
-supercomputer from the 1995 film _Hackers_, visualized as a city of
-translucent data towers standing in blackness on a circuit-board floor.
-
-This is a Rust + wgpu rewrite of John Serafino's 2015 Irrlicht/OpenGL
-original. One renderer core drives every platform — a macOS screen saver, a
-Windows `.scr`, a Linux xscreensaver hack, a windowed desktop app, and a
-WebGPU/WebGL2 web build — and the visuals are graded against real frames
-from the film rather than guessed; see
-[docs/film-reference.md](docs/film-reference.md) for the sources and the
-production research.
+A screensaver that flies you through the Gibson - the supercomputer from
+_Hackers_ (1995), the one that looks like a city of glass towers full of
+scrolling text, standing on a circuit board in the dark. If you know, you
+know. If you don't: it's the most beautiful thing anyone has ever put on a
+screen to represent a file system, and it has been living rent-free in my
+head since I was a kid.
 
 ![A low pass down the lanes of the Gibson: translucent blue towers, cyan mosaic text, and pulse streaks along the black floor](docs/screenshots/lane.png)
 
-## Live demo
+I first built this in 2015 as a weekend port of John Serafino's Irrlicht
+screensaver, in C++ that segfaulted more than it rendered. This is the rewrite:
+Rust and wgpu, one renderer, and hosts for a macOS screen saver, a Windows
+`.scr`, a Linux xscreensaver hack, a plain desktop window, and the web. The
+look isn't guessed - it's graded against actual frames from the film and
+interviews with the people who built the original sequence out of perspex and
+printed cels. That research is in [docs/film-reference.md](docs/film-reference.md)
+and it's honestly the part I'm proudest of.
+
+## Just show me
 
 **<https://paulkiernan.github.io/gibson-screensaver/>**
 
-The page uses WebGPU where the browser exposes it and falls back to WebGL2
-otherwise — so Chrome 113+, Safari 26+, and Firefox with WebGPU enabled run
-the WebGPU path, and any WebGL2-capable browser without WebGPU still gets
-the scene through the fallback. The URL accepts query parameters — see the
-Web entry under [Settings](#settings).
+Runs in the browser on WebGPU where it can (Chrome 113+, Safari 26+, Firefox
+with WebGPU on) and falls back to WebGL2 everywhere else. You can mess with
+it from the URL - `?palette=siege&grid=40` - see [Settings](#settings).
 
-To host it yourself instead, `gibson-screensaver-web.zip` on the
-[Releases page](https://github.com/paulkiernan/gibson-screensaver/releases/latest)
-is a static build of the same page. Unzip it and serve it over HTTP — the
-wasm module needs server headers, so a `file://` URL will not work:
+If you'd rather host it yourself, `gibson-screensaver-web.zip` on the
+[releases page](https://github.com/paulkiernan/gibson-screensaver/releases/latest)
+is the same page as a static build. It has to come over HTTP because the wasm
+module needs the headers, so `file://` won't do it:
 
 ```bash
 unzip gibson-screensaver-web.zip
@@ -35,441 +37,276 @@ cd web
 python3 -m http.server 8080
 ```
 
-## Screenshots
-
 ![Overhead sweep: tower tops read teal-green, distant towers dissolve into blue haze](docs/screenshots/overhead.png)
 
 ![The siege palette from the film's "under attack" sequence: orange text, magenta-pink towers, ice-blue floor traces](docs/screenshots/siege.png)
 
 ## Install
 
-Prebuilt downloads for every host are attached to the
-[Releases page](https://github.com/paulkiernan/gibson-screensaver/releases/latest).
-A release is published whenever a semver tag is pushed — the version alone,
-with no `v` prefix — and the tag must equal the workspace version in
-`Cargo.toml` character for character (the release workflow refuses to build
-if it does not). A prerelease tag such as `2.1.0-rc.1` publishes as a GitHub
-prerelease rather than as the latest stable release. If you want the tip of
-`main` instead, every host builds from source — see [Building](#building).
-
-Each release carries the same six assets:
+Every release on the
+[releases page](https://github.com/paulkiernan/gibson-screensaver/releases/latest)
+ships the same six files:
 
 | Asset | What it is |
 | --- | --- |
-| `Gibson.saver.zip` | macOS screen saver bundle, universal (arm64 + x86_64) |
+| `Gibson.saver.zip` | macOS screen saver, universal (Apple silicon + Intel) |
 | `Gibson.scr` | Windows screen saver |
-| `gibson-screensaver-macos-universal.tar.gz` | macOS windowed desktop app |
-| `gibson-screensaver-linux-x86_64.tar.gz` | Linux desktop app / xscreensaver hack, including `gibson-screensaver.xml` |
-| `gibson-screensaver-web.zip` | the static web build, for self-hosting |
-| `SHA256SUMS` | checksums covering every asset above |
+| `gibson-screensaver-macos-universal.tar.gz` | macOS desktop app |
+| `gibson-screensaver-linux-x86_64.tar.gz` | Linux desktop app / xscreensaver hack, with its `.xml` descriptor |
+| `gibson-screensaver-web.zip` | the web build, for self-hosting |
+| `SHA256SUMS` | checksums for all of the above |
 
-Download the asset you want and `SHA256SUMS` into the same directory, then
-verify the download before installing:
+Grab what you want plus `SHA256SUMS` into the same folder and check it before
+you install it - `shasum -a 256 -c --ignore-missing SHA256SUMS` on macOS,
+`sha256sum -c --ignore-missing SHA256SUMS` on Linux. The `--ignore-missing`
+just skips the assets you didn't download.
 
-```bash
-# macOS
-shasum -a 256 -c SHA256SUMS
+### macOS
 
-# Linux
-sha256sum -c SHA256SUMS
-```
-
-The names in `SHA256SUMS` are the bare asset names above, so both commands
-work from your download directory with no paths to adjust. `SHA256SUMS`
-covers every asset in the release, so if you fetched only some of them, add
-`--ignore-missing` (`shasum -a 256 -c --ignore-missing SHA256SUMS`) and the
-assets you did not download are skipped instead of reported as `FAILED open
-or read`.
-
-### Package managers
-
-| Host | Channel | Status |
-| --- | --- | --- |
-| macOS | Homebrew cask, from a personal tap | available — see below |
-| Arch Linux | AUR (`gibson-screensaver`, `gibson-screensaver-bin`) | prepared, not yet submitted |
-| Windows | Scoop | prepared, not yet submitted |
-
-The two unsubmitted manifests are complete and pinned to this release's real
-digests — they live in [`packaging/`](packaging/) and each carries a runbook.
-They are not published yet because submitting them needs account credentials
-rather than code, so until then use the per-host steps below.
-
-### macOS screen saver
-
-Requires macOS 14 or later.
-
-**Homebrew** is the shortest path, and gives you a real uninstall:
+Needs macOS 14 or newer. Homebrew is the easy way and gives you a real
+uninstall:
 
 ```bash
 brew tap paulkiernan/tap
-brew trust paulkiernan/tap
+brew trust paulkiernan/tap        # Homebrew 6 wants this once for third-party taps
 brew install --cask gibson-screensaver
 
-# The download is quarantined; see the Gatekeeper note below.
 xattr -dr com.apple.quarantine "$HOME/Library/Screen Savers/Gibson.saver"
 killall legacyScreenSaver 2>/dev/null || true
 ```
 
-`brew trust` is required by Homebrew 6, which refuses to load casks from
-unofficial taps until you trust them once (`brew install` tells you so and
-names the command). Earlier Homebrew versions have no `brew trust` and no
-trust step — skip that line if it errors as an unknown command.
+(If `brew trust` says it isn't a command, you're on an older Homebrew and can
+skip it.)
 
-The cask installs the same bundle this page describes, from the same release
-asset, pinned to its SHA256 — so Homebrew does the download-and-verify for
-you. It does **not** avoid the quarantine step: the flag is applied because
-the bytes came from the internet, whichever tool fetched them. `brew
-uninstall --cask gibson-screensaver` removes the bundle cleanly.
-
-The cask is in a personal tap rather than `homebrew/cask` because a cask
-there must pass Gatekeeper, which needs Apple notarization this project has
-no Developer ID for; a self-submission would also have to clear Homebrew's
-notability thresholds. See
-[packaging/homebrew/README.md](packaging/homebrew/README.md).
-
-Otherwise build it yourself (see [Building](#building)), or install by hand —
-download `Gibson.saver.zip` (universal — Apple silicon and Intel) and
-`SHA256SUMS` from the
-[Releases page](https://github.com/paulkiernan/gibson-screensaver/releases/latest).
+Or by hand - download `Gibson.saver.zip` and `SHA256SUMS`, then:
 
 ```bash
-# From your download directory, with the zip and SHA256SUMS both present:
 shasum -a 256 -c --ignore-missing SHA256SUMS
-
-# Unzip it and put the bundle where macOS looks for screen savers:
 unzip Gibson.saver.zip
 cp -R Gibson.saver "$HOME/Library/Screen Savers/"
-
-# macOS quarantines browser downloads and then refuses to load the ad-hoc
-# signed bundle, so clear the flag on the installed copy and its contents:
 xattr -dr com.apple.quarantine "$HOME/Library/Screen Savers/Gibson.saver"
-
-# Make the running screen-saver process pick up the new bundle:
 killall legacyScreenSaver 2>/dev/null || true
 ```
 
 Then pick **The Gibson** in System Settings > Wallpaper > Screen Saver.
-`make install-saver` does the same copy-and-restart steps for a build from
-source, where no quarantine step is needed because nothing was downloaded.
 
-**Gatekeeper note:** the bundle is ad-hoc signed but not notarized, so the
-`xattr -dr` line above is what makes it load — without it macOS leaves the
-bundle quarantined and the screen saver simply never draws, because a
-`.saver` is loaded inside the screen-saver process rather than launched as
-an app (there is no "open anyway" dialog and no Privacy & Security prompt
-for it). Stripping the attribute clears the quarantine only; the ad-hoc
-signature still verifies afterwards. Verify the download against
-`SHA256SUMS` before installing it.
+About that `xattr` line, because it trips everyone up: the bundle is signed but
+not notarized (no Apple Developer ID here), and macOS quarantines anything a
+browser downloaded. A `.saver` runs inside the screen-saver process, not as an
+app, so there's no "Open Anyway" button - it just silently never draws. Clearing
+the quarantine flag is what fixes it, and the signature still checks out
+afterwards. That's also why the cask lives in my own tap rather than
+`homebrew/cask`, which requires notarization.
 
-Remove it with `make uninstall-saver`, or by deleting the bundle from
-`~/Library/Screen Savers/`.
+Uninstall with `brew uninstall --cask gibson-screensaver`, `make uninstall-saver`,
+or just delete the bundle from `~/Library/Screen Savers/`.
 
-### Windows `.scr`
+### Windows
 
-Download `Gibson.scr` from the
-[Releases page](https://github.com/paulkiernan/gibson-screensaver/releases/latest)
-and install it the classic way: right-click the file and choose **Install**,
-or copy it to `C:\Windows\System32\Gibson.scr` and pick "The Gibson" in
-Settings > Personalization > Lock screen > Screen saver settings. Windows
-marks downloaded programs as internet-sourced, so if SmartScreen warns,
-choose **More info** > **Run anyway**, or clear the mark first with
-`Unblock-File .\Gibson.scr`.
+Download `Gibson.scr`, right-click it and choose **Install** - or drop it in
+`C:\Windows\System32\` and pick "The Gibson" under Settings > Personalization >
+Lock screen > Screen saver settings. If SmartScreen complains it's from the
+internet, **More info** > **Run anyway**, or `Unblock-File .\Gibson.scr` first.
 
-The same binary understands `/s` (full screen), `/p <hwnd>` (preview tile),
-and `/c` (opens the settings file). Full steps are in
+It's the standard screensaver interface: `/s` runs it, `/p <hwnd>` draws the
+preview tile, `/c` opens the settings file. Details in
 [platform/windows/README.md](platform/windows/README.md). To build it
-yourself instead:
+yourself it's just `cargo build --release -p gibson-app` and rename the
+`.exe` to `Gibson.scr`.
 
-```text
-cargo build --release -p gibson-app
-copy target\release\gibson-app.exe Gibson.scr
-```
+### Linux (xscreensaver)
 
-**Verified on real hardware.** The Windows host has been run and confirmed
-working by the maintainer, in addition to being built and tested in CI on
-every push.
+**Arch:** `gibson-screensaver` (builds from source) and `gibson-screensaver-bin`
+(prebuilt) are ready for the AUR and publish themselves from CI - they're just
+waiting on the AUR reopening account registration. Until then both build
+locally with `makepkg -si` from
+[`packaging/aur/`](packaging/aur/) or [`packaging/aur-bin/`](packaging/aur-bin/).
 
-### Linux xscreensaver
-
-**Arch Linux:** two AUR packages are written and pinned —
-`gibson-screensaver` builds from the release tag, and
-`gibson-screensaver-bin` unpacks the prebuilt tarball. **Neither is submitted
-to the AUR yet**, so `paru -S gibson-screensaver` will not find anything
-today; publishing them needs an AUR account and SSH key rather than more
-code. The `PKGBUILD`s, `.SRCINFO` files and the submission runbook are in
-[`packaging/aur/`](packaging/aur/) and
-[`packaging/aur-bin/`](packaging/aur-bin/), and can be built locally right
-now with `makepkg -si` from either directory. Both install the binary as
-`/usr/bin/gibson-screensaver` and the descriptor as
-`/usr/share/xscreensaver/config/gibson-screensaver.xml` — system paths, rather
-than the per-user ones the manual steps below use. Neither edits
-`~/.xscreensaver` for you, because that file is yours and xscreensaver rewrites
-it wholesale, but both print the exact `programs:` line to add after install.
-
-`gibson-app` doubles as an xscreensaver "external window" hack. The
-`gibson-screensaver-linux-x86_64.tar.gz` asset on the
-[Releases page](https://github.com/paulkiernan/gibson-screensaver/releases/latest)
-contains the binary and the `gibson-screensaver.xml` descriptor, and unpacks into
-a `gibson-screensaver-linux-x86_64/` directory:
+**Everything else:** the binary doubles as an xscreensaver hack. Download
+`gibson-screensaver-linux-x86_64.tar.gz` and `SHA256SUMS`, then:
 
 ```bash
-# From your download directory, with the tarball and SHA256SUMS present:
 sha256sum -c --ignore-missing SHA256SUMS
-
 tar -xzf gibson-screensaver-linux-x86_64.tar.gz
 cd gibson-screensaver-linux-x86_64
 
-# Put the binary on PATH as `gibson-screensaver` - the basename has to match the
-# descriptor, because xscreensaver-settings looks the descriptor up by the
-# program's basename - and the descriptor where xscreensaver looks for it:
 install -Dm755 gibson-app "$HOME/.local/bin/gibson-screensaver"
 sudo install -Dm644 gibson-screensaver.xml \
      /usr/share/xscreensaver/config/gibson-screensaver.xml
 ```
 
-Then add this line to `~/.xscreensaver` (create it with `xscreensaver-demo`
-first if needed). It takes no arguments:
+Add this to `~/.xscreensaver` (run `xscreensaver-demo` once first if the file
+doesn't exist), then pick "Hack the Gibson" in the demo:
 
 ```text
 programs: gibson-screensaver
 ```
 
-That line resolves `gibson-screensaver` on `PATH`; give the absolute path instead
-if `~/.local/bin` is not on yours.
-
-The name matters, and it is not `gibson`: upstream xscreensaver has shipped
-its own unrelated `gibson` hack (also about the 1995 film) since 5.44, with
-the same executable and descriptor filenames. `cargo build --release -p
-gibson-app` produces the same binary from source, and
-[`platform/linux/gibson-screensaver.xml`](platform/linux/gibson-screensaver.xml) is
-the descriptor the tarball ships. Full steps, the collision explained, and
-the settings-dialog note are in
-[platform/linux/README.md](platform/linux/README.md).
-
-**Verified on real hardware.** Run on Arch Linux with a real GPU (NVIDIA
-GeForce GTX 1080, proprietary driver 580.159.04, Vulkan): both xscreensaver
-launch paths adopt the window and present frames, and the real `xscreensaver`
-daemon drives it in a nested X server. CI additionally runs the same smoke test
-under Xvfb with a software rasteriser on every push. The host is X11 only: on a
-Wayland session use `swayidle` plus `gibson-app --fullscreen` instead (see the
-same file for the exact command). The per-run numbers and what is still
-uncovered are in
-[platform/linux/README.md](platform/linux/README.md#status).
-
-### Desktop app (any platform)
-
-Grab `gibson-screensaver-macos-universal.tar.gz` (universal) or
-`gibson-screensaver-linux-x86_64.tar.gz` (glibc x86_64) from the
-[Releases page](https://github.com/paulkiernan/gibson-screensaver/releases/latest);
-each unpacks into a directory holding `gibson-app`:
+Two things worth knowing. The name has to be `gibson-screensaver`, not
+`gibson`, because xscreensaver has shipped its own unrelated `gibson` hack
+since 5.44 (also about the film - great minds) and the settings dialog finds
+a hack's option sheet by the program's basename. And xscreensaver is X11-only,
+so on Wayland run it under your idle daemon instead:
 
 ```bash
-tar -xzf gibson-screensaver-macos-universal.tar.gz
-
-# macOS quarantines the tarball on download and the binary is not
-# notarized, so clear the flag before running it:
-xattr -d com.apple.quarantine gibson-screensaver-macos-universal/gibson-app
-
-./gibson-screensaver-macos-universal/gibson-app
+swayidle -w timeout 600 'gibson-screensaver --fullscreen' resume 'pkill gibson-screensaver'
 ```
 
-Or run it from source:
+This host is tested on real hardware (Arch, an NVIDIA GTX 1080, and the real
+`xscreensaver` daemon), and CI smoke-tests it under Xvfb on every push. The
+numbers and the setup are in [platform/linux/README.md](platform/linux/README.md).
 
-```bash
-cargo run --release -p gibson-app
-```
+### Just the desktop app
 
-A windowed flythrough opens; press Esc or Q to quit. Useful flags (see
-`--help` for the full list):
+The macOS and Linux tarballs each unpack to a folder with `gibson-app` in it.
+On macOS clear the quarantine flag first
+(`xattr -d com.apple.quarantine gibson-screensaver-macos-universal/gibson-app`).
+Or from a checkout, `cargo run --release -p gibson-app`. Esc or Q quits.
+
+The flags I actually use:
 
 ```text
 --fullscreen                          borderless fullscreen
---snapshot out.png --size 1920x1080   render one offscreen still and exit
-        --time 12                     (seconds of simulated flight for the still;
-                                       deterministic for a fixed --seed)
---speed 0.8                           fly speed
---bank 0.9                            banking strength
---palette normal|siege|cycle          color treatment
---grid 40                             city size (grid x grid towers)
---pulses 200                          lane pulse streaks
---seed 12345                          reproducible city and flight (0 = time-derived)
---render-scale 0.5                    internal resolution multiplier
---no-bloom --no-motion-blur --no-crt  disable individual effects
---config /path/to/gibson.toml         alternate settings file
+--snapshot out.png --size 1920x1080   render one still and exit
+        --time 12                     (seconds of flight; deterministic for a fixed --seed)
+--palette normal|siege|cycle          blue / under-attack orange / cycle between them
+--speed 0.8  --bank 0.9               fly speed, banking strength
+--grid 40  --pulses 200               city size, lane pulse count
+--seed 12345                          same city and flight every time (0 = from the clock)
+--render-scale 0.5                    cheaper on slow GPUs
+--no-bloom --no-motion-blur --no-crt  turn effects off individually
+--config /path/to/gibson.toml         a different settings file
 ```
-
-**Platform status, stated plainly:** the macOS saver, the Windows `.scr`, the
-desktop app, the web build, and — as of the runs recorded in
-[platform/linux/README.md](platform/linux/README.md#status) — the Linux
-xscreensaver host have all been run on real hardware. For Linux that means a
-real GPU driver and the real xscreensaver daemon, not just CI's software
-rasteriser under Xvfb. What is still untested there: multi-GPU/hybrid setups,
-real multi-head Xinerama/RANDR layouts, and non-NVIDIA drivers on hardware.
 
 ## Settings
 
-One settings struct drives every host. All values are clamped to legal
-ranges on load, so a bad config file, CLI value, or query parameter can
-never put the renderer out of bounds.
+One settings struct drives every host, and every value is clamped on load, so
+a bad config file or query string can't push the renderer somewhere silly.
 
-| Setting | Default | Range | Effect |
+| Setting | Default | Range | What it does |
 | --- | --- | --- | --- |
-| `fly_speed` | 0.55 | 0.05–3 | Speed along the flight path (segments per second) |
+| `fly_speed` | 0.55 | 0.05–3 | Speed along the flight path, in path segments per second |
 | `bank_strength` | 0.45 | −3–3 | How hard the camera banks into turns |
-| `bank_max_degrees` | 32 | 0–60 | Maximum bank angle, degrees |
+| `bank_max_degrees` | 32 | 0–60 | Maximum bank angle |
 | `bank_smoothing` | 0.55 | 0.05–2 | Bank low-pass time constant, seconds |
-| `palette` | `normal` | `normal`, `siege`, `cycle` | Color treatment (blues / attack oranges / timed cycling) |
-| `palette_cycle_seconds` | 240 | 10–3600 | Seconds between switches in `cycle` mode |
-| `bloom` | 0.35 | 0–2 | Bloom intensity; 0 disables bloom |
-| `motion_blur` | 0.5 | 0–1 | Motion-blur strength; 0 disables |
-| `grain` | 0.03 | 0–0.2 | Film-grain amount; 0 disables |
-| `crt` | 0.35 | 0–1 | CRT-overlay strength (scanlines, aperture grille, curvature, phosphor bloom, edge vignette); 0 disables |
-| `render_scale` | 1.0 | 0.25–1 | Internal resolution multiplier; lower is cheaper on slow GPUs |
-| `grid` | 60 | 8–120 | City size: `grid x grid` towers |
-| `pulses` | 700 | 0–2000 | Number of pulse streaks down the lanes |
-| `seed` | 0 | any 64-bit integer | City, atlas, and floor seed; 0 derives one from the clock |
-| `preview` | false | true / false | Screensaver-preview mode; hosts set this themselves |
+| `palette` | `normal` | `normal`, `siege`, `cycle` | Blues, the film's attack oranges, or timed cycling |
+| `palette_cycle_seconds` | 240 | 10–3600 | Seconds between switches in `cycle` |
+| `bloom` | 0.35 | 0–2 | Bloom intensity; 0 disables |
+| `motion_blur` | 0.5 | 0–1 | Motion blur strength; 0 disables |
+| `grain` | 0.03 | 0–0.2 | Film grain; 0 disables |
+| `crt` | 0.35 | 0–1 | Scanlines, aperture grille, curvature, phosphor bloom, vignette; 0 disables |
+| `render_scale` | 1.0 | 0.25–1 | Internal resolution multiplier |
+| `grid` | 60 | 8–120 | City size, `grid x grid` towers |
+| `pulses` | 700 | 0–2000 | Pulse streaks running down the lanes |
+| `seed` | 0 | any 64-bit integer | City, text and floor seed; 0 takes one from the clock |
+| `preview` | false | | Screensaver preview mode; the hosts set this themselves |
 
-**High-DPI rendering is capped automatically.** On screen (desktop window, macOS
-saver, xscreensaver hack, Windows `.scr`, web canvas) the render target is capped
-at 2.8 megapixels, whatever the display resolution: a 2940x1912 saver drawable
-renders at about 2078x1352 and the compositor upscales. Rendering cost is
-fill-rate proportional (~5 ms per megapixel), so the cap is what keeps a 60 Hz
-frame achievable, and above it the extra pixels are detail nobody sees in motion.
-`render_scale` is unchanged and still multiplies on top of the cap, so the
-slider/setting works in both directions (a 0.5 there halves the capped target
-again). Offscreen renders are never capped: `--snapshot --size WxH` always
-produces exactly `WxH`, which is what the committed screenshots and CI rely on.
+On screen the render target is capped at 2.8 megapixels whatever the display
+is, because rendering cost is about 5 ms per megapixel and 60 Hz on a 5K
+display is not happening otherwise; the compositor scales it up and in motion
+you cannot tell. `render_scale` still multiplies on top of that.
+`--snapshot` is never capped and always gives you exactly the size you asked
+for.
 
-Where each host stores or accepts them:
+Where the settings live:
 
-- **macOS Options sheet** (System Settings > Wallpaper > Screen Saver >
-  Options…, or right-click the preview): sliders **Fly speed** (0.2–1.2),
-  **Banking** (0–1), and **CRT overlay** (0–1); a **Palette** popup with
-  Normal / Siege / Cycle; and **Bloom glow**, **Motion blur**, and
-  **Film grain** checkboxes (unchecked disables the effect). Changes apply
-  on the next activation.
-- **`gibson.toml`**: created automatically — with every key, its default,
-  and a comment — the first time a desktop host or `--snapshot` run starts,
-  at `<config-dir>/gibson-screensaver/gibson.toml`, where `<config-dir>` is
-  `~/Library/Application Support` on macOS, `~/.config` on Linux, and
-  `%APPDATA%` on Windows. The Windows `/c` mode also ensures the file
-  exists and opens it in your editor. Unknown keys are ignored; missing
-  keys fall back to defaults.
-- **Desktop CLI**: `--speed`, `--bank`, `--palette`, `--grid`, `--pulses`,
-  `--grain`, `--crt`, `--seed`, `--render-scale`, and the
-  `--no-bloom` / `--no-motion-blur` / `--no-crt` switches, applied on top of
-  the config file.
-- **Web**: the same names as query parameters on the demo URL, except
-  `fly_speed` is `speed`, `bank_strength` is `bank`, and `render_scale` is
-  `scale`:
+- **macOS**: the Options sheet on the saver (System Settings > Wallpaper >
+  Screen Saver > Options…) has sliders for fly speed, banking and the CRT, a
+  palette popup, and checkboxes for bloom, motion blur and grain. Changes take
+  effect next time the saver starts.
+- **`gibson.toml`**: written with every key, its default and a comment the
+  first time a desktop host or `--snapshot` runs, at
+  `<config dir>/gibson-screensaver/gibson.toml` - that's
+  `~/Library/Application Support` on macOS, `~/.config` on Linux, `%APPDATA%`
+  on Windows. The Windows `/c` mode opens it for you. Unknown keys are ignored.
+- **Command line**: the flags above, applied over the config file.
+- **Web**: the same names as query parameters, except `speed`, `bank` and
+  `scale` for the three long ones:
+  `https://paulkiernan.github.io/gibson-screensaver/?palette=cycle&grid=40&pulses=200`
 
-  ```text
-  https://paulkiernan.github.io/gibson-screensaver/?palette=cycle&grid=40&pulses=200
-  ```
-
-  Supported: `speed`, `bank`, `palette`, `grid`, `pulses`, `seed`, `scale`,
-  `bloom`, `motionblur`, `grain`, `crt`.
-
-Precedence everywhere is: built-in defaults < `gibson.toml` < command-line
-or query overrides.
+Defaults < `gibson.toml` < command line or query string, everywhere.
 
 ## Building
 
-Prerequisites:
+You need Rust. The exact version is pinned (`rust-toolchain.toml` for rustup,
+`.tool-versions` for asdf - they say the same thing) so that Clippy can't grow
+a new lint and fail a build nobody touched. For the web build add
+`rustup target add wasm32-unknown-unknown` and `cargo install wasm-pack --locked`;
+for a universal macOS saver add the `aarch64-apple-darwin` and
+`x86_64-apple-darwin` targets (or build just yours with
+`make -C platform/macos ARCHS=arm64`).
 
-- Rust stable (the workspace pins `stable` in `rust-toolchain.toml`)
-- For the web build: `rustup target add wasm32-unknown-unknown` and
-  `cargo install wasm-pack --locked`
-- For a universal macOS saver (arm64 + x86_64 slices):
-  `rustup target add aarch64-apple-darwin x86_64-apple-darwin`
-  (the saver Makefile defaults to both; build just your arch with
-  `make -C platform/macos ARCHS=arm64`)
-
-Root Makefile targets (each delegates to cargo or a platform Makefile):
-
-| Target | What it does |
+| `make` target | What it does |
 | --- | --- |
-| `make app` | Run the windowed desktop app |
-| `make snapshot` | Render `docs/screenshots/lane.png` (1920x1080, t=12 s) |
-| `make web` | `wasm-pack build` of `crates/gibson-web` into `web/pkg` |
-| `make saver` | Build `platform/macos/build/Gibson.saver` |
-| `make install-saver` / `make uninstall-saver` | Install / remove the saver |
-| `make test` | `cargo test --workspace --exclude gibson-web` |
-| `make clean` | `cargo clean` |
+| `app` | run the desktop window |
+| `snapshot` | render `docs/screenshots/lane.png` |
+| `web` | `wasm-pack build` into `web/pkg` |
+| `saver`, `install-saver`, `uninstall-saver` | build / install / remove the macOS saver |
+| `smoke-linux`, `daemon-linux` | run the xscreensaver host against a real X window, and under the real daemon |
+| `check` | the tests, with debuginfo trimmed so `target/` stays sane |
+| `fmt-check`, `lint`, `lint-wasm`, `commits` | what CI runs |
 
-Notable: the macOS saver builds with **Command Line Tools only — no Xcode
-required**. It is a Makefile that compiles the Rust core to a staticlib,
-links it into a Swift dylib with `swiftc`, `lipo`s the architectures
-together, wraps the result in a `.saver` bundle, and ad-hoc codesigns it
-(recipe proven by the PerfectoWeb/Gibson saver). CI tests and builds every
-target — macOS (tests + saver), Windows (tests + `.scr`), Linux (tests +
-xscreensaver host), and wasm (web bundle) — and pushing a semver tag (no `v`
-prefix) publishes all of those builds as a
-[release](https://github.com/paulkiernan/gibson-screensaver/releases/latest)
-with checksums.
+The macOS saver needs only the Command Line Tools, not Xcode: the Makefile
+compiles the Rust core to a staticlib, links it into a Swift dylib with
+`swiftc`, `lipo`s the slices together, wraps a `.saver` bundle and ad-hoc
+signs it. CI builds and tests every host on every push, and pushing a bare
+semver tag (`2.1.2`, no `v`) publishes all of them as a release with checksums.
+There's more - the crate map, the conventions, how to bump Rust - in
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## How it works
 
-The workspace is a set of small crates with one contract crate,
-`gibson-types`, that everything compiles against:
+A handful of small crates around one contract crate, `gibson-types`, that
+everything compiles against.
 
-- **Deterministic procedural content.** A 64-bit `seed` reproduces the same
-  city, text, and floor exactly. The text atlas (`gibson-atlas`) generates
-  64 layers of 256x768 RGBA: 32 tower-face panels, each with two text
-  variants that share byte-identical block geometry. Panels 0–28 are dense
-  mosaics of mono-text blocks — hex dumps, numeric columns, keyword rows,
-  bar-chart glyphs, framed and inverse-video blocks — in IBM Plex Mono;
-  panels 28–32 are hero directory lists (Michroma, the Eurostile-Extended-
-  style face) whose entries double as individually highlightable blocks. The
-  floor (`gibson-floor`) generates a toroidal 96x96-cell circuit board on
-  which the towers are the integrated circuits: each tower footprint is an IC
-  package with its own pin ring, and nets run tower to tower between those
-  pins, routed octilinearly so a 45-degree jog costs less than a right angle,
-  alongside bus bundles, power rails, ground pours, vias and silkscreen.
-- **The city.** A `grid x grid` array of towers standing in the lanes of the
-  2015 world grid. Towers are instanced translucent glass boxes 12 units
-  wide and 44–110 tall, drawn double-sided so back-face text bleeds through
-  the body. In the shader, each text block clears and redraws top-down on
-  its own cycle, alternating between the two text variants; occasionally a
-  block on a nearby tower lights up in the palette's highlight color, and
-  pulse streaks run down the lanes between towers.
-- **The camera.** The closed-loop flight path was rescued from the 2015 C++
-  waypoints (z-negated for a right-handed Y-up world), and the banking
-  algorithm — a low-passed yaw rate driving a smoothed roll — was ported
-  from the SceneKit fork that this project grew out of.
-- **The frame graph.** The scene renders at `render_scale` into an HDR
-  (16-bit float) target: floor, towers, pulses, then a bloom prefilter with
-  a downsample/upsample chain, motion blur by depth reprojection against the
-  previous frame, and a final composite applying ACES tonemapping, chromatic
-  aberration, film grain, and vignette — plus, when `crt > 0`, a CRT
-  treatment (scanlines, aperture grille, screen curvature, phosphor smear)
-  as the last step. Distant towers fade through a blue haze to black, and
-  the whole look is graded against the film reference in
-  [docs/film-reference.md](docs/film-reference.md).
+**Everything is generated from a seed.** A 64-bit `seed` reproduces the same
+city, the same text, the same floor. `gibson-atlas` draws 64 layers of 256x768
+text panels: dense mosaics of hex dumps, numeric columns, keyword rows and bar
+glyphs in IBM Plex Mono, and a few hero directory listings in Michroma (the
+Eurostile-Extended lookalike the film used) whose entries light up
+individually. `gibson-floor` lays out a toroidal 96x96 circuit board where
+each tower footprint is an IC package with its own pin ring, and nets are
+routed between towers octilinearly - a 45-degree jog is cheaper than a right
+angle, like a real board - with bus bundles, power rails, ground pours, vias
+and silkscreen.
+
+**The city** is a `grid x grid` array of towers standing in the lanes of the
+2015 world grid: instanced translucent glass boxes 12 units wide and 44–110
+tall, drawn double-sided so the text on the far face bleeds through. Each text
+block clears and redraws top-down on its own clock, occasionally one on a
+nearby tower flares in the palette's highlight colour, and pulses run down the
+lanes.
+
+**The camera** follows a closed flight path rescued from the 2015 C++
+waypoints, banking with a low-passed yaw rate that drives a smoothed roll -
+that bit came over from the SceneKit saver fork, which is what got me to do
+this rewrite at all.
+
+**The frame** renders at `render_scale` into a 16-bit float target: floor,
+towers, pulses, then a bloom chain, motion blur by reprojecting against the
+previous frame's depth, and a composite doing ACES tonemapping, chromatic
+aberration, grain and vignette - then the CRT pass last, if it's on. Far towers
+fade through blue haze to black, and every one of those choices is checked
+against the film reference doc.
 
 ## Support
 
-This is a spare-time project. If it made you smile and you feel like saying
-thanks, you can buy me a coffee:
+This is a spare-time thing. If it made you grin, coffee is nice:
 
 <a href="https://buymeacoffee.com/paulynomial"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me a Coffee" width="217" height="60"></a>
 
 ## Credits
 
-- **John Serafino** — the 2015 Irrlicht original this is a rewrite of.
-- **dherberger** — the 2026 macOS SceneKit/Metal `.saver` fork that proved
-  the screensaver path and whose banking code and grid conventions carried
-  over; the fork was merged back upstream to become this project.
-- The film crew whose work is being reproduced: **Peter Chiang** (VFX
-  supervisor), **Tim Field** (VFX producer), and **Neville Brody** (type
-  design). The film's towers were built as clear perspex prisms with printed
-  text cels, shot on motion control at Pinewood, and designed after Muriel
-  Cooper's MIT "Information Landscapes".
+- **John Serafino**, whose 2015 Irrlicht screensaver is where this started.
+- **dherberger**, for the SceneKit/Metal saver fork that proved the macOS
+  path and whose banking code and grid conventions are still in here; it was
+  merged back upstream and became this project.
+- **Peter Chiang**, **Tim Field** and **Neville Brody**, who made the real
+  thing in 1995: clear perspex prisms with printed text cels, shot on motion
+  control at Pinewood, after Muriel Cooper's "Information Landscapes" at MIT.
 
 ## License
 
-GPL-3.0-or-later (see [LICENSE](LICENSE)). The bundled fonts — Michroma
-Regular and IBM Plex Mono Medium — are SIL Open Font License; their license
-text ships in [assets/fonts/OFL-Michroma.txt](assets/fonts/OFL-Michroma.txt)
-and [assets/fonts/OFL-IBMPlexMono.txt](assets/fonts/OFL-IBMPlexMono.txt).
+GPL-3.0-or-later - see [LICENSE](LICENSE). The bundled fonts, Michroma Regular
+and IBM Plex Mono Medium, are under the SIL Open Font License; their texts are
+in [assets/fonts/](assets/fonts/).

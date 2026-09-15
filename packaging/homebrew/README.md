@@ -1,7 +1,7 @@
 # Homebrew cask: `gibson-screensaver.rb`
 
-A cask for the owner's **personal tap**, using the `screen_saver` stanza so
-`brew install --cask` moves `Gibson.saver` into `~/Library/Screen Savers`.
+A cask for my own tap, using the `screen_saver` stanza so `brew install --cask`
+moves `Gibson.saver` into `~/Library/Screen Savers`.
 
 | Field | Value |
 | --- | --- |
@@ -10,13 +10,12 @@ A cask for the owner's **personal tap**, using the `screen_saver` stanza so
 | SHA256 | `7a11cb1df741888e7908311b119478da91903c581cb2f2f46b2e900a9d2f86dc` |
 | Minimum macOS | `>= :sonoma` (14.0), from the bundle's own `LSMinimumSystemVersion` |
 
-The hash is the one in that release's published `SHA256SUMS`, so it describes
-the bytes users download.
+The hash is the one in that release's published `SHA256SUMS`, so it describes the
+bytes users download.
 
 ## Why a personal tap and not `homebrew/cask`
 
-Two hard requirements stand in the way, either one of which is disqualifying on
-its own:
+Two hard requirements stand in the way, either one disqualifying on its own:
 
 1. **Gatekeeper.** `docs.brew.sh/Acceptable-Casks` requires that "apps,
    installers and other executable artefacts that Gatekeeper can assess must
@@ -25,28 +24,24 @@ its own:
    ad-hoc signed and **not notarized**, so a downloaded copy is quarantined and
    fails assessment; the only way to run it is to clear the quarantine flag,
    which is precisely the bypass that clause rules out. Notarization is
-   therefore mandatory for `homebrew/cask`, not a nice-to-have.
-2. **Notability.** `docs.brew.sh/Package-Acceptance-Policy#notability` requires
-   a new package to "demonstrate public interest beyond its author": at least
-   30 forks, 30 watchers or 75 stars normally, and at least **90 forks, 90
-   watchers or 225 stars for a self-submission by the repository owner**. The
-   canonical repository currently has **17 stars, 3 forks and 1 watcher**, so a
-   self-submission would be rejected on the numbers alone.
+   mandatory for `homebrew/cask`, not a nice-to-have.
+2. **Notability.** `docs.brew.sh/Package-Acceptance-Policy#notability` requires a
+   new package to "demonstrate public interest beyond its author": at least 30
+   forks, 30 watchers or 75 stars normally, and at least **90 forks, 90 watchers
+   or 225 stars for a self-submission by the repository owner**. This repository
+   has **17 stars, 3 forks and 1 watcher**, so a self-submission would be
+   rejected on the numbers alone.
 
 What would change it: notarize `Gibson.saver` with an Apple Developer ID (which
-also removes the `xattr` step users currently need, so the cask would stop
-shipping a Gatekeeper workaround), and grow the repository past 225 stars or
-90 forks or 90 watchers. Both together, and the cask becomes a normal
-`homebrew/cask` candidate.
-
-A personal tap carries none of these constraints: `brew tap` fetches a plain
-GitHub repository, and casks in it are installed exactly like official ones. The
-caveats below stay, because the quarantine problem is real either way.
+also removes the `xattr` step users need today), and grow past 225 stars or 90
+forks or 90 watchers. A personal tap carries none of that - `brew tap` fetches a
+plain GitHub repository, and casks in it install exactly like official ones - but
+the caveats stay, because the quarantine problem is real either way.
 
 ## Publishing
 
-The tap repository must be named `homebrew-<tap>`; Homebrew resolves
-`brew tap paulkiernan/tap` to `paulkiernan/homebrew-tap`. Create it, then:
+The tap repository has to be named `homebrew-<tap>` - `brew tap paulkiernan/tap`
+resolves to `paulkiernan/homebrew-tap`. Create it, then:
 
 ```sh
 git clone git@github.com:paulkiernan/homebrew-tap.git
@@ -58,10 +53,10 @@ git commit -m 'gibson-screensaver 2.1.1'
 git push
 ```
 
-`Casks/h/gibson-screensaver.rb` mirrors the layout used by `homebrew-cask` itself
-(casks live under a directory named for the first letter of the token). A tap
-also accepts the file at the repository root, but matching the official layout
-keeps a future move to `homebrew/cask` a straight copy.
+`Casks/h/gibson-screensaver.rb` mirrors the layout `homebrew-cask` itself uses -
+casks live under a directory named for the first letter of the token. A tap also
+accepts the file at the repository root, but matching the official layout keeps a
+later move to `homebrew/cask` a straight copy.
 
 Users then run:
 
@@ -70,64 +65,38 @@ brew tap paulkiernan/tap
 brew install --cask paulkiernan/tap/gibson-screensaver
 ```
 
-The full token can also be used in one step, which performs the tap implicitly:
-
-```sh
-brew install --cask paulkiernan/tap/gibson-screensaver
-```
-
-After a new release, bump `version` and `sha256` together:
+After a new release, bump `version` and `sha256` together, taking the digest from
+the release's own `SHA256SUMS` rather than from a local download:
 
 ```sh
 shasum -a 256 Gibson.saver.zip    # or read the value out of the release's SHA256SUMS
 ```
 
-Do not automate the digest from a local download: the value must be the digest
-of the published asset, which `SHA256SUMS` already is.
+`brew audit --cask` and `brew style` are worth running for tidiness, though
+`audit` will complain about things only required in `homebrew/cask` - a `url`
+whose host does not match `homepage`, and the quarantine caveat. Neither is a
+correctness problem in a tap.
 
-`brew audit --cask` and `brew style` are worth running for tidiness, but expect
-`audit` to complain about things that are only required in `homebrew/cask` -
-notably a `url` whose host does not match `homepage`, and the quarantine
-caveat. Neither is a correctness problem in a tap.
+## What the cask does
 
-## Notes on the cask's contents
-
-- `screen_saver "Gibson.saver"` installs the bundle into `~/Library/Screen Savers`.
-  The stanza's path is relative to the unpacked archive, which contains exactly
-  one top-level item: `Gibson.saver` (verified by listing the published zip).
+- `screen_saver "Gibson.saver"` installs the bundle into `~/Library/Screen
+  Savers`. The stanza's path is relative to the unpacked archive, which contains
+  exactly one top-level item: `Gibson.saver`.
 - `depends_on macos: :sonoma` matches the bundle's `LSMinimumSystemVersion` of
   14.0 and the `macos-15` runner the release is built on. The symbol form is
-  required: Homebrew deprecated the string comparison form (`">= :sonoma"`),
-  and `brew tap` warns and names the line. Note `ruby -c` accepts the
-  deprecated form happily, so only a real `brew tap` catches it.
+  required: Homebrew deprecated the string comparison form (`">= :sonoma"`), and
+  `brew tap` warns and names the line, while `ruby -c` accepts the deprecated
+  form happily.
 - The bundle's display name is **"The Gibson"** (`CFBundleName` and
   `CFBundleDisplayName` in `platform/macos/Info.plist`), which is the name the
   System Settings list shows, hence `name "The Gibson"` rather than the project
   name.
 - `zap` removes the desktop app's config directory
   (`~/Library/Application Support/gibson-screensaver`, the path
-  `crates/gibson-app/src/config.rs` uses) and the saver's preferences domain.
-  The saver stores its options through `ScreenSaverDefaults` under the bundle
-  identifier `org.hackthegibson.TheGibson` (`platform/macos/Sources/Settings.swift`),
-  which is the domain the plist path is derived from. That identifier still says
-  `hackthegibson`: the project rename changed the repository and the product
-  name, not the bundle identifier, and changing it would strand every existing
-  user's saved options. Leave it as it is in the `zap` stanza. Whether it lands
-  in `~/Library/Preferences/` or in the `ByHost` subdirectory has **not** been
-  checked - if a user reports leftovers, `brew zap` output will show the real
-  path, and it can be added to the list.
-
-## Verified / not verified
-
-Checked here: `ruby -c packaging/homebrew/gibson-screensaver.rb` passes; the
-version, asset name and SHA256 match the release; `CFBundleName`,
-`CFBundleDisplayName`, `CFBundleIdentifier` and `LSMinimumSystemVersion` were
-read out of `platform/macos/Info.plist` in this repository; and the requirement
-texts quoted above were read from `docs.brew.sh` rather than recalled.
-
-Not checked, because no Homebrew tap was created and no cask was installed:
-that `brew install --cask` resolves the URL and digest, that the `screen_saver`
-stanza places the bundle where System Settings finds it on a current macOS, and
-that the cask passes `brew audit` in any form. Installing from the tap is the
-first real test, and it should be done on a machine where the saver can then be
-selected in System Settings.
+  `crates/gibson-app/src/config.rs` uses) and the saver's preferences domain. The
+  saver stores its options through `ScreenSaverDefaults` under the bundle
+  identifier `org.hackthegibson.TheGibson`
+  (`platform/macos/Sources/Settings.swift`), which is the domain the plist path
+  is derived from. That identifier still says `hackthegibson`: the project rename
+  changed the repository and the product name, not the bundle identifier, and
+  changing it would strand every existing user's saved options. Leave it alone.

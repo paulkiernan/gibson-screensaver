@@ -1,20 +1,19 @@
 <!--
-Short is the point: a paragraph each is plenty, and anything that does not apply
-can be deleted. Build and test commands are in CONTRIBUTING.md.
+Short is the point: a paragraph each is plenty, and anything that does not apply can be
+deleted. Build and test commands are in CONTRIBUTING.md.
 -->
 
 ## What changed, and why
 
 <!--
-What the change does, and the reason for it. Link an issue ("Fixes #123") if
-there is one.
+What the change does, and the reason for it. Link an issue ("Fixes #123") if there is
+one.
 -->
 
 ## Where it was built or run
 
-Tick only what you actually exercised. Ticking the boxes you could test honestly
-is more useful than ticking all of them - a reviewer needs to know what has
-never run, not to see a full column.
+Tick only what you actually ran. A half-filled list tells a reviewer what has not been
+exercised, which is what they need to know - a full column tells them very little.
 
 - [ ] macOS screen saver (`make saver`, or `make install-saver`)
 - [ ] Windows `.scr`
@@ -47,7 +46,7 @@ cargo run --release -p gibson-app -- \
       `CARGO_PROFILE_DEV_DEBUG=line-tables-only`
 - [ ] `make fmt-check` passes, and `make lint` reports no warnings
 - [ ] Commits follow the Conventional Commits convention in CONTRIBUTING.md
-- [ ] A change to `gibson-types` is flagged as one - it is the frozen contract,
-      so `!` after the type or scope, and a `BREAKING CHANGE:` footer
+- [ ] A change to `gibson-types` is flagged as one - it is the frozen contract, so `!`
+      after the type or scope, and a `BREAKING CHANGE:` footer
 - [ ] Renderer or shader changes respect the WebGL2 envelope described in
       CONTRIBUTING.md

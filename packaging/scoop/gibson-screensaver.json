@@ -33,7 +33,7 @@
     "notes": [
         "Run it now: double-click \"$dir\\Gibson.scr\", or from a terminal run \"$dir\\Gibson.scr\" /s (a mouse move or Esc ends it). \"/c\" opens its settings file.",
         "To select it in Windows: Settings > Personalization > Lock screen > Screen saver. That list is built from the saver files kept in %SystemRoot%\\System32, so this per-user install is not shown there. Either reinstall with `scoop install -g gibson-screensaver` from an elevated shell, or copy \"$dir\\Gibson.scr\" into %SystemRoot%\\System32 as administrator - the latter is what the file's right-click Install verb does.",
-        "This manifest deliberately writes no registry values. What selects a saver is HKCU\\Control Panel\\Desktop\\SCRNSAVE.EXE, which the dialog above sets for you; Microsoft documents setting it from a file path with: rundll32.exe desk.cpl,InstallScreenSaver \"$dir\\Gibson.scr\"",
+        "This manifest writes no registry values. What selects a saver is HKCU\\Control Panel\\Desktop\\SCRNSAVE.EXE, which the dialog above sets for you; Microsoft documents setting it from a file path with: rundll32.exe desk.cpl,InstallScreenSaver \"$dir\\Gibson.scr\"",
         "Gibson.scr is an unsigned x86_64 Rust/wgpu build, so SmartScreen may warn the first time it runs."
     ],
     "checkver": {

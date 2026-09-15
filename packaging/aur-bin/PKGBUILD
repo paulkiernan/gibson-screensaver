@@ -3,29 +3,14 @@
 # gibson-screensaver-bin: the same program as `gibson-screensaver` (../aur/),
 # installed from the release's prebuilt Linux tarball instead of compiled from
 # the tag tarball. The AUR requires the `-bin` suffix for a package built from
-# prebuilt deliverables when the sources are available, and they are - the
-# source package beside this one is them. See ../aur/README.md for the shared
-# reasoning behind the executable name and the xscreensaver descriptor path.
+# prebuilt deliverables when the sources are available, and they are - the source
+# package beside this one. It exists to save that user a heavy wgpu + winit + ash
+# compile; see ../aur/README.md for the shared reasoning behind the executable
+# name, the descriptor path and why both packages are worth publishing.
 #
-# Why this package exists: wgpu + winit + ash is a heavy Rust build, and a user
-# who only wants the screen saver should not have to run it. What it costs: a
-# second package to bump on every release, and a binary whose provenance is the
-# release workflow rather than the user's own compiler.
-#
-# The runtime dependency set is identical to the source package: this binary
-# also dlopen()s nearly every library it uses, so namcap cannot see them and the
-# same hand-derived `depends` is carried over (../aur/PKGBUILD explains each
-# entry). This one has likewise NOT been checked in a clean chroot.
-#
-# ── Upstream status: verified on real hardware ─────────────────────────────
-# The X11 / xscreensaver host is smoke-tested in CI on every push, under Xvfb
-# with Mesa lavapipe, via both $XSCREENSAVER_WINDOW and --window-id. Beyond
-# that it has been run on real hardware - Arch Linux, NVIDIA GTX 1080 with the
-# proprietary 580.159.04 driver, Vulkan - through both launch paths and under
-# the real xscreensaver daemon. The runtime library set was also confirmed by
-# capturing /proc/<pid>/maps of the running binary; see ../aur/PKGBUILD. Still
-# uncovered: multi-GPU / hybrid setups, real multi-head Xinerama/RANDR
-# layouts, and non-NVIDIA drivers on hardware.
+# `depends` is the same hand-derived list as the source package, because this
+# binary also dlopen()s nearly every library it uses and namcap cannot see any of
+# them either; ../aur/PKGBUILD explains each entry.
 
 pkgname=gibson-screensaver-bin
 pkgver=2.1.2

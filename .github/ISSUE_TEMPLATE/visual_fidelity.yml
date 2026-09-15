@@ -5,15 +5,14 @@ body:
   - type: markdown
     attributes:
       value: |
-        This is the project's primary standard: the visuals are graded against
-        the observed frames and crew interviews in
+        The visuals here are graded against the observed frames and crew interviews in
         [docs/film-reference.md](https://github.com/paulkiernan/gibson-screensaver/blob/main/docs/film-reference.md),
-        not against taste. A report that names the reference it disagrees with
-        is actionable; "the towers look wrong" is not.
+        not against taste. A report that names the reference it disagrees with is
+        actionable; "the towers look wrong" is not.
 
-        The film frames themselves are copyrighted and are **not** committed to
-        the repository. Link to the source instead of pasting a frame, or
-        describe the shot (which sequence, roughly where in it).
+        The film frames themselves are copyrighted and are not committed to the
+        repository. Link to the source instead of pasting a frame, or describe the
+        shot (which sequence, roughly where in it).
 
   - type: textarea
     id: screenshot
@@ -25,9 +24,9 @@ body:
 
         `cargo run --release -p gibson-app -- --snapshot out.png --size 1920x1080 --time 12 --seed 42`
 
-        and include the exact command you used with the image. Film captures
-        were graded at 1080p, so a still at another size or a phone photo of the
-        screen is much harder to compare.
+        and include the exact command you used with the image. Film captures were
+        graded at 1080p, so a still at another size, or a phone photo of the
+        screen, is much harder to compare.
     validations:
       required: true
 
@@ -49,10 +48,10 @@ body:
     attributes:
       label: Settings used
       description: |
-        The stills that were graded were produced with specific times and
-        palettes, so these decide whether we are looking at the same thing:
-        any CLI flags (especially `--time`, `--palette`, `--seed`, `--grid`),
-        the contents of `gibson.toml`, or the web query string.
+        The stills that were graded were produced with specific times and palettes,
+        so these decide whether we are looking at the same thing: any CLI flags
+        (especially `--time`, `--palette`, `--seed`, `--grid`), the contents of
+        `gibson.toml`, or the web query string.
     validations:
       required: true
 
@@ -64,8 +63,8 @@ body:
         Be specific: text colour, tower opacity, back-face text bleed, block
         layout, the directory lists and their markers, floor trace colour and
         routing, fog colour at distance, bloom, grain, motion blur, the CRT
-        treatment, camera banking. "Too clean" and "too bright" are fine as
-        long as you say which part is too clean or too bright.
+        treatment, camera banking. "Too clean" and "too bright" are fine as long
+        as you say which part is too clean or too bright.
     validations:
       required: true
 

@@ -9,11 +9,10 @@ published digest:
 | Asset | `Gibson.scr` (from release `2.1.1`) |
 | SHA256 | `22f96ad6c15177f8ab977b2020a11472bcfb300ee7b463a6ce3988577f44b86f` |
 
-The hash is the one GitHub's own `SHA256SUMS` asset carries for the same
-release, not a value re-computed from a local download, so it is the digest of
-the bytes users actually get. `Gibson.scr` is the release workflow's
-`target/release/gibson-app.exe` copied byte for byte (`Copy-Item`), so the asset
-is the binary that CI built and uploaded.
+The hash is the one GitHub's own `SHA256SUMS` asset carries for that release, not
+a value computed from a local download, so it describes the bytes users actually
+get. `Gibson.scr` is the release workflow's `target/release/gibson-app.exe`
+copied byte for byte (`Copy-Item`).
 
 `checkver` + `autoupdate` keep the manifest current: `checkver` follows GitHub's
 "latest release" for the repository (prereleases are ignored, and this project
@@ -34,63 +33,46 @@ cd <bucket repo>
 .\bin\checkver.ps1 gibson-screensaver -u
 ```
 
-## The Windows choreography, and what is honestly unknown
+## Where a `.scr` has to live
 
-Where a `.scr` has to live to be selectable, as far as this can be established
-from documentation without a Windows machine to try it on:
+From the documentation, without a Windows machine to try it on:
 
 - **The active screen saver is a registry value, and that part is
   Microsoft-documented.** `HKCU\Control Panel\Desktop\SCRNSAVE.EXE` (REG_SZ)
-  names the screen saver executable. Microsoft documents setting it from a file
-  path with
+  names it. Microsoft documents setting it from a file path with
   `rundll32.exe desk.cpl,InstallScreenSaver <file>`
-  (<https://learn.microsoft.com/en-us/windows/win32/devnotes/scrnsave-exe>), and
-  the note there is explicit that Windows writes this value when you pick a
-  saver in the Display/Personalization UI, and deletes it if you choose
-  *(None)*. Group Policy can supersede it.
-- **The drop-down list is populated by scanning `%SystemRoot%\System32`.** This
-  is *not* stated by Microsoft anywhere I could find; it is what the community
-  documents, what the shell's right-click **Install** verb does (it copies the
-  file into `System32` before setting the value), and what matches the observed
-  behaviour on Windows 10/11. Treat it as very likely rather than certain.
-  On 64-bit systems `SysWOW64` is also mentioned in some sources; a 64-bit
-  `.scr` belongs in `System32` either way.
-- **Consequence, and the reason this manifest is conservative:** a per-user
-  Scoop install puts `Gibson.scr` in `%USERPROFILE%\scoop\apps\gibson-screensaver\<version>`,
-  which is a directory Windows does not enumerate, so the saver will *not* be
-  offered in Settings. What does work immediately without any install step:
-  double-clicking the file, or running `Gibson.scr /s` (full screen) and
-  `/c` (opens the settings file in the default editor). Both are handled by the
-  binary itself; see `crates/gibson-app/src/saver_args.rs`.
+  (<https://learn.microsoft.com/en-us/windows/win32/devnotes/scrnsave-exe>).
+  Windows writes that value when you pick a saver in the UI and deletes it if you
+  choose *(None)*, and Group Policy can supersede it.
+- **The drop-down list is populated by scanning `%SystemRoot%\System32`.** Not
+  stated by Microsoft anywhere I can find: it is what the community documents,
+  what the shell's right-click **Install** verb does (copy the file into
+  `System32`, then set the value), and what matches the behaviour on Windows
+  10/11, so treat it as very likely rather than certain. On 64-bit systems
+  `SysWOW64` is mentioned in some sources; a 64-bit `.scr` belongs in `System32`
+  either way.
+- **So a per-user Scoop install is not offered in Settings.** `Gibson.scr` lands
+  in `%USERPROFILE%\scoop\apps\gibson-screensaver\<version>`, a directory Windows
+  does not enumerate. What works straight away: double-clicking the file, or
+  `Gibson.scr /s` (full screen) and `/c` (opens the settings file in the default
+  editor) - both handled by the binary itself, see
+  `crates/gibson-app/src/saver_args.rs`.
 
-What the manifest therefore does and does not do:
-
-- **Does** install the file, verify its digest, and - only for a global install
-  (`scoop install -g`, which is already elevated) - copy it into
-  `System32`, exactly as the shell's Install verb would, and remove that copy on
-  uninstall.
-- **Does not** write any registry value. The assignment of a screen saver is
-  something the user does in Settings or via the documented `InstallScreenSaver`
-  call; silently setting `SCRNSAVE.EXE` from an installer is unverifiable from
-  here, and a mistake in that key is a support burden.
-- **Does not** shim the `.scr` onto `PATH`. It is a screen saver, not a CLI tool
-  people need to call by name.
-
-Everything above about `System32`, `SysWOW64`, the Install verb's copy step and
-the `$global` branch has **never been executed**: this repository was prepared on
-macOS, which has no Windows, no Scoop and no PowerShell. The manifest's JSON, its
-URLs and its hash are checked; its behaviour is not.
+The manifest therefore installs the file, checks its digest, and - only for a
+global install (`scoop install -g`, already elevated) - copies it into
+`System32`, exactly as the shell's Install verb would, removing that copy on
+uninstall. It writes no registry value: assigning a screen saver is something the
+user does in Settings or through the documented `InstallScreenSaver` call, and a
+mistake in that key is a support burden. It does not shim the `.scr` onto `PATH`
+either - it is a screen saver, not a CLI tool people call by name.
 
 ## Route 1: personal bucket (works immediately)
 
 Create a public GitHub repository named `scoop-bucket` (the name matters only in
-that the bucket is added by URL, but `scoop-bucket` is the convention users
-expect), put the manifest in it at the repository root as
-`gibson-screensaver.json`, and commit. That is the whole publishing step - Scoop
-buckets are read straight out of the repository, with no review and no
-signing gate.
-
-Users then:
+that the bucket is added by URL, but that is what users expect), put the manifest
+at the repository root as `gibson-screensaver.json`, and commit. That is the
+whole publishing step - Scoop buckets are read straight out of the repository,
+with no review and no signing gate. Users then:
 
 ```powershell
 scoop bucket add paulkiernan https://github.com/paulkiernan/scoop-bucket
@@ -100,29 +82,27 @@ scoop install paulkiernan/gibson-screensaver
 scoop install -g paulkiernan/gibson-screensaver
 ```
 
-Tradeoff: users need the extra `scoop bucket add` line, and `scoop search` only
-finds it within that bucket. In exchange the manifest is live the moment it is
-pushed, and the owner can iterate on it without a review round-trip.
+Tradeoff: the extra `scoop bucket add` line, and `scoop search` only finds it
+within that bucket - in exchange for a manifest that is live the moment it is
+pushed, and room to iterate without a review round-trip.
 
 ## Route 2: `ScoopInstaller/Extras`
 
-Extras is the general-purpose official bucket. Submission means a pull request
-against <https://github.com/ScoopInstaller/Extras> adding
-`bucket/gibson-screensaver.json`.
+Extras is the general-purpose official bucket: a pull request against
+<https://github.com/ScoopInstaller/Extras> adding
+`bucket/gibson-screensaver.json`. It wants a valid manifest (the bucket's CI
+validates every manifest against its JSON schema), a working `checkver`, and the
+acceptance criteria at
+<https://github.com/ScoopInstaller/Scoop/wiki/Criteria-for-including-apps-in-the-main-bucket>.
+Once `checkver` works the excavator autoupdates it hourly, so the manifest stops
+needing hand-edits.
 
-- Requirements: manifest validity (the bucket's CI validates every manifest
-  against its JSON schema), a working `checkver`, and the acceptance criteria at
-  <https://github.com/ScoopInstaller/Scoop/wiki/Criteria-for-including-apps-in-the-main-bucket>.
-  Extras is also autoupdated hourly by the excavator once `checkver` works, so
-  the manifest stops needing hand-edits.
-- The real obstacle is not the schema: **a PR is expected to be tested on
-  Windows**, and this manifest's install and uninstall paths cannot be tested
-  here. The practical order is to ship the personal bucket first, let real users
-  hit it, and only then open the Extras PR with the confidence that comes from
-  those reports.
-- Tradeoff: broad reach through the default bucket, in exchange for a review
-  cycle, a stricter `installer.script` bar, and the possibility that a reviewer
-  asks for the `System32` copying to move into a documented, tested form.
+The real obstacle is not the schema: **a PR is expected to be tested on
+Windows**, and these install and uninstall paths cannot be tested here. Ship the
+personal bucket first, let real users hit it, then open the Extras PR with the
+confidence those reports give you. The trade is reach for a review cycle, a
+stricter `installer.script` bar, and a reviewer who may ask for the `System32`
+copying to move into a documented, tested form.
 
 ## Updating for a new release
 
@@ -137,17 +117,3 @@ scoop uninstall gibson-screensaver
 If `checkver` is unavailable, bump `version`, the two URLs in `autoupdate`, and
 `hash`, taking the new `hash` from the `SHA256SUMS` asset on that release rather
 than from a local download.
-
-## Verified / not verified
-
-Checked here: the manifest parses (`python3 -m json.tool`); the version, asset
-name and SHA256 match GitHub's `SHA256SUMS` for release `2.1.1`; the asset really
-is a PE32+ GUI-subsystem x86-64 executable and its imports include `opengl32.dll`
-and `dxgi.dll` (checked with `llvm-objdump -p` on the downloaded asset), which is
-consistent with it being the wgpu app.
-
-Not checked, and unverifiable without Windows: that `scoop install` and
-`scoop uninstall` do what the scripts say; that `checkver -u` resolves the new
-version (it should, but it has never run); that a `System32` copy is what makes
-the file appear in Screen Saver Settings on the user's Windows build; and that
-the `.scr` itself renders on a real GPU - CI builds it but never runs it.

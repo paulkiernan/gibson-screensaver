@@ -5,8 +5,8 @@
 //! rendering and `snapshot()` for one offscreen still. Time is host monotonic seconds; the first
 //! call to `frame`/`snapshot` defines `t = 0`.
 //!
-//! Batch 0 scaffold: this wiring is already real. With the Batch 0 stub content generators and
-//! scene it produces a haze-colored frame; Batch 2 verifies it end to end.
+//! Everything the hosts need is wired together here - the generated content, the [`Scene`] and
+//! the [`Renderer`] - so a host only ever drives the two entry points above.
 
 use gibson_render::{RenderError, Renderer, Viewport};
 use gibson_scene::Scene;
@@ -214,8 +214,8 @@ impl Gibson {
 
     /// (presented, skipped) frame counters forwarded from the renderer: `presented` frames
     /// were actually shown on the surface; `skipped` frames were dropped because the surface
-    /// was occluded or busy. A host can use this to report honest fps and to back off its
-    /// render loop while the skip counter is advancing (see the desktop host).
+    /// was occluded or busy. A host can use this to report an accurate frame rate and to back
+    /// off its render loop while the skip counter is advancing (see the desktop host).
     pub fn present_stats(&self) -> (u64, u64) {
         self.renderer.present_stats()
     }
@@ -236,7 +236,7 @@ impl Gibson {
         self.renderer.gpu_census()
     }
 
-    /// Replace the settings (clamped). Batch 2 may also want to push them into the scene.
+    /// Replace the settings (clamped). The next `frame` or `snapshot` uses them.
     pub fn set_settings(&mut self, settings: Settings) {
         self.settings = settings.clamped();
     }
@@ -260,8 +260,8 @@ fn backends() -> wgpu::Backends {
 
 /// Time-derived seed used when `Settings::seed == 0`.
 ///
-/// Native: nanoseconds since the Unix epoch. Wasm: we deliberately avoid a `js_sys` dependency
-/// in this crate, so the fallback is a fixed constant; web hosts should pass an explicit seed
+/// Native: nanoseconds since the Unix epoch. Wasm: the crate avoids a `js_sys` dependency, so
+/// the fallback is a fixed constant; web hosts should pass an explicit seed
 /// (e.g. from a query parameter) when they want per-visit variation.
 #[cfg(not(target_arch = "wasm32"))]
 fn time_derived_seed() -> u64 {

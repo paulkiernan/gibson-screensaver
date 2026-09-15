@@ -6,22 +6,22 @@
 //! - The source had 41 rows; rows at index 39 and 40 were exact duplicates of row 0, so the
 //!   closed loop has **39 unique control points** (indices 0..=38). The duplicates were dropped.
 //! - Transcribed verbatim: no rounding, no reordering; x and y copied as-is, z negated.
-//!   Mechanically verified against `git show HEAD:src/fly_path.h` (see Scaffold batch report).
+//!   Mechanically verified against `git show HEAD:src/fly_path.h`.
 //!
-//! # Constants the Batch 1 scene agent needs (from the same header)
+//! # Constants carried over from the legacy header
 //! - `GIBSON_FLY_SPEED 0.55` — fly speed in segments/second (legacy `#define GIBSON_FLY_SPEED 0.55f`).
 //! - `GIBSON_FLY_TIGHTNESS 0.5` — Catmull-Rom tension (legacy `#define GIBSON_FLY_TIGHTNESS 0.5f`).
 //! - `GIBSON_FLY_LOOKAHEAD_MS 150` — camera look-ahead (legacy `#define GIBSON_FLY_LOOKAHEAD_MS 150`).
 //!
 //! The legacy camera applied a 150 ms look-ahead offset (`camDt = elapsedMs - LOOKAHEAD_MS`)
 //! *and* aimed the camera forward from position to a look-at point (`lookDt = elapsedMs`), i.e.
-//! the pose at `s` looked toward `s + fly_speed * 0.15` segments. The Batch 1 spec instead
-//! advances the camera by `s` and looks at `s + fly_speed * 0.15`; both formulations agree
-//! because the closed loop is translation-invariant under the constant 150 ms lead.
+//! the pose at `s` looked toward `s + fly_speed * 0.15` segments. This port instead advances the
+//! camera by `s` and looks at `s + fly_speed * 0.15`; both formulations agree because the closed
+//! loop is translation-invariant under the constant 150 ms lead.
 //!
 //! The legacy spline itself was a *ping-pong* (alternating-direction) Catmull-Rom over 40 spans;
-//! the Batch 1 spec replaces that with a **closed Catmull-Rom that wraps continuously**, which is
-//! the intended modernization (no direction reversal at the seam).
+//! this port replaces that with a **closed Catmull-Rom that wraps continuously**, so there is no
+//! direction reversal at the seam.
 
 use glam::Vec3;
 

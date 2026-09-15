@@ -1,12 +1,12 @@
 # Maintainer: Paul Kiernan <paulkiernan1@gmail.com>
 #
 # ── Why the package and the installed executable are `gibson-screensaver` ─────
-# Upstream xscreensaver has shipped its own, unrelated `gibson` hack since
-# 5.44 (Jamie Zawinski, 2020 - same film, same filenames, different program),
-# at /usr/lib/xscreensaver/gibson and
-# /usr/share/xscreensaver/config/gibson.xml. This package must therefore never
-# install anything under the bare name `gibson`; `gibson-screensaver` is the
-# name it claims instead. Two separate things follow:
+# Upstream xscreensaver has shipped its own, unrelated `gibson` hack since 5.44
+# (Jamie Zawinski, 2020 - same film, same filenames, different program), at
+# /usr/lib/xscreensaver/gibson and
+# /usr/share/xscreensaver/config/gibson.xml, so this package installs nothing
+# under the bare name `gibson` and claims `gibson-screensaver` instead. Three
+# things follow from that collision:
 #
 #   * Installing a descriptor as /usr/share/xscreensaver/config/gibson.xml is a
 #     pacman conflicting-files error, because Arch's `xscreensaver` package
@@ -15,30 +15,16 @@
 #   * Even without the file collision, xscreensaver prepends its own hacks
 #     directory to $PATH when it resolves the `programs:` list, so a second
 #     `gibson` on PATH would lose to upstream's and never run.
-#
-# The executable basename is not cosmetic either: xscreensaver-settings finds a
-# hack's descriptor by taking the basename of the installed program and looking
-# for <config-dir>/<basename>.xml. Renaming either half breaks the option sheet
-# in the settings dialog. Do not "tidy" this back to `gibson`.
-#
-# ── Upstream status: verified on real hardware ─────────────────────────────
-# The X11 / xscreensaver host is smoke-tested in CI on every push: it adopts a
-# real X window under Xvfb with a software Vulkan rasteriser (lavapipe), via
-# both $XSCREENSAVER_WINDOW and --window-id, and asserts a nonzero presented
-# frame count on exit. Beyond CI, it has now been run on real hardware: Arch
-# Linux, NVIDIA GeForce GTX 1080 with the proprietary 580.159.04 driver,
-# Vulkan backend. Both launch paths presented frames (384 and 346 in a recorded
-# run), and the real xscreensaver daemon drove the hack in a nested X server
-# with the rendered frame captured off the screen. Still uncovered: multi-GPU /
-# hybrid setups, real multi-head Xinerama/RANDR layouts, and non-NVIDIA drivers
-# on hardware.
+#   * xscreensaver-settings finds a hack's descriptor by taking the basename of
+#     the installed program and looking for <config-dir>/<basename>.xml, so
+#     renaming either half breaks the option sheet. Do not "tidy" this back to
+#     `gibson`.
 #
 # ── depends: read out of the code, not copied from a template ──────────────
-# The released Linux binary links almost nothing. `readelf -d` (checked with
-# GNU objdump -p against the 2.1.1 asset) shows only libgcc_s.so.1, libm.so.6,
-# libc.so.6 and the dynamic loader. Every X11 / Wayland / Vulkan library is
-# dlopen()ed at runtime, so namcap cannot see any of them and each one has to
-# be written down here by hand:
+# The released Linux binary links almost nothing - `readelf -d` shows only
+# libgcc_s.so.1, libm.so.6, libc.so.6 and the dynamic loader - and dlopen()s
+# every X11, Wayland and Vulkan library at runtime, where namcap cannot see it.
+# Each one has to be written down here by hand:
 #
 #   glibc             libc.so.6, libm.so.6 - linked
 #   gcc-libs          libgcc_s.so.1 - linked; the only dlopen-free library, and
@@ -55,51 +41,27 @@
 #                     because winit enables `wayland-dlopen`
 #   vulkan-icd-loader libvulkan.so.1, dlopened by ash's `loaded` feature
 #
-# Confidence in these entries is now backed by measurement rather than reading
-# alone. On the Arch machine above, this package was built with makepkg and the
-# resulting binary was run under both a Wayland and an X11 session while its
-# /proc/<pid>/maps was captured; every shared object it actually loaded was
-# mapped to its owning package with `pacman -Qo`, and every one of them is
-# either inside the dependency closure of the ten entries above (`pactree -u`)
-# or supplied by the Vulkan driver, which is an optdepend rather than a depend:
+# The list comes from measurement, not from reading the code: the built binary was
+# run under both a Wayland and an X11 session with /proc/<pid>/maps captured, and
+# every shared object it loaded was mapped to its owning package with `pacman -Qo`.
+# All ten entries were seen loaded, so the list is complete and minimal for that
+# setup. The only objects loaded from outside their dependency closure belong to
+# the installed Vulkan driver (an optdepend, not a depend) - libdrm, systemd-libs,
+# libdbus-1.so.3, which libnvidia-glcore.so dlopens, and the nvidia-*.so files.
 #
-#   libdrm, systemd-libs   pulled in by the installed NVIDIA driver package
-#   libdbus-1.so.3         dlopen()ed by libnvidia-glcore.so; the gibson binary
-#                          contains no reference to dbus at all
-#   nvidia-*.so            the driver itself
+# libglvnd is not in depends on purpose. wgpu's GLES backend is compiled in and
+# can dlopen libEGL.so.1, but the native code asks for wgpu::Backends::PRIMARY,
+# which on Linux means Vulkan only, so libEGL is never opened. Add libglvnd if
+# that selection ever changes.
 #
-# All ten depends above were observed loaded, so the list is complete and
-# minimal for that configuration.
-#
-# The clean-environment build and the namcap run this comment used to ask for
-# are now automated: .github/workflows/aur.yml builds both packages inside an
-# `archlinux:base-devel` container - which has only the declared dependencies
-# installed, so a missing one fails there instead of passing on a machine that
-# happened to have the library - verifies every source digest against the
-# published bytes, and runs namcap on the PKGBUILD and on the built package.
-# Nothing is pushed to the AUR unless all of that passes.
-#
-# What namcap says about all this, so nobody re-reports it as a bug: warnings
-# only, no errors. It calls every entry from libx11 down "Dependency included,
-# but may not be needed", and says gcc-libs is "implicitly satisfied" by
-# libgcc. Both are the dlopen blindness above rather than a finding - namcap
-# reads ELF headers, and this binary declares nothing past libgcc_s/libm/libc.
-# Hence the workflow failing on namcap errors and only printing its warnings.
-#
-# Deliberately NOT in depends: libglvnd. wgpu's GLES backend is compiled into
-# the binary and can dlopen libEGL.so.1, but the native code asks for
-# wgpu::Backends::PRIMARY, which on Linux means Vulkan only, so the GL backend
-# is never initialised and libEGL is never opened. Add libglvnd only if that
-# selection changes.
+# namcap reports warnings and no errors on this package, and its warnings are the
+# dlopen blindness above rather than findings.
 #
 # ── sha256sums ────────────────────────────────────────────────────────────
-# Measured, not guessed: the value below is the SHA256 of
-# https://github.com/paulkiernan/gibson-screensaver/archive/refs/tags/2.1.1.tar.gz
-# as downloaded on 2026-09-11, and GitHub generated a byte-identical tarball on
-# a second download. `updpkgsums` in this directory will re-measure it; run that
-# after any change to `source`, and note that a force-retag (`git tag -f`) makes
-# GitHub regenerate the tarball and invalidates the digest even though pkgver has
-# not moved.
+# Measured with `updpkgsums` from the published tag tarball, never copied from a
+# build log; re-run it after any change to `source`. A force-retag (`git tag -f`)
+# makes GitHub regenerate the tarball and invalidates the digest even though
+# pkgver has not moved.
 
 pkgname=gibson-screensaver
 pkgver=2.1.2
@@ -149,7 +111,7 @@ sha256sums=('2d792936c551ec259a474fddf36af22ed0f511f3a198190886c2d1a58563b0fb')
 
 prepare() {
   cd "$pkgname-$pkgver"
-  # RUSTUP_TOOLCHAIN is deliberately not exported: the sources carry
+  # RUSTUP_TOOLCHAIN is not exported here: the sources carry
   # rust-toolchain.toml, and the Rust package guidelines say not to override the
   # toolchain when upstream already pins one.
   cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"

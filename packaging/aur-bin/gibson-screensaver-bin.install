@@ -1,7 +1,7 @@
-# Printed by pacman after install. The package deliberately does not edit
-# ~/.xscreensaver: that file belongs to the user, xscreensaver rewrites it
-# wholesale, and a package has no business owning a line in it. So the one
-# manual step is explained here rather than done silently.
+# Printed by pacman after install. The package does not edit ~/.xscreensaver:
+# that file belongs to the user, xscreensaver rewrites it wholesale, and a
+# package has no business owning a line in it. So the one manual step is
+# explained here rather than done silently.
 
 post_install() {
 	cat <<'EOF'

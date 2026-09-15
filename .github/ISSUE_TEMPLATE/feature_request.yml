@@ -6,12 +6,12 @@ body:
   - type: markdown
     attributes:
       value: |
-        Ideas are welcome. Two things shape what can be accepted here: the film
-        is the specification for how the Gibson looks (see
+        Ideas are welcome. Two things shape what can be accepted here: the film sets
+        the standard for how the Gibson looks (see
         [docs/film-reference.md](https://github.com/paulkiernan/gibson-screensaver/blob/main/docs/film-reference.md)),
-        and every host has to keep working - the web build in particular runs
-        inside a WebGL2 envelope that rules out storage buffers, compute
-        shaders, and several other modern features.
+        and every host has to keep working - the web build in particular runs inside
+        a WebGL2 envelope that rules out storage buffers, compute shaders, and
+        several other modern features.
 
   - type: textarea
     id: what
