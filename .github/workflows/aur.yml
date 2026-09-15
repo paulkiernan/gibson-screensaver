@@ -1,0 +1,306 @@
+name: AUR
+
+# Publishes the two AUR packages from packaging/aur and packaging/aur-bin.
+#
+# The AUR is a git host: a package IS a repository containing a PKGBUILD and a
+# matching .SRCINFO, and pushing to `ssh://aur@aur.archlinux.org/<pkgname>.git`
+# creates it on the first push and updates it afterwards. Nothing else is
+# needed - no API, no release upload - which is why this is a workflow and not a
+# manual step on a maintainer's laptop.
+#
+# It runs in an `archlinux` container rather than on the bare Ubuntu runner,
+# because everything here needs Arch's own tools: `makepkg` to regenerate and
+# compare .SRCINFO, verify the source digests against the published bytes, and
+# actually build the package, and `namcap` to lint both the PKGBUILD and the
+# built artifact. That container is also a clean environment with only the
+# declared dependencies installed, which is the check the PKGBUILD comments ask
+# for and that a maintainer's own machine cannot give: a missing `depends` entry
+# fails here instead of silently working because the packager happened to have
+# the library.
+#
+# Publishing is gated on validation passing, so a bad digest or a .SRCINFO that
+# disagrees with its PKGBUILD can never reach the AUR.
+#
+# Setup, once (see packaging/aur/README.md):
+#   1. Create an AUR account.
+#   2. Add the public half of a dedicated SSH key to that account
+#      (My Account -> SSH Public Key).
+#   3. Put the private half in this repository's secrets as
+#      AUR_SSH_PRIVATE_KEY.
+# Until step 3 is done the validation still runs; only the push is skipped, with
+# a notice saying why.
+
+on:
+  # The packaging pin commit is the trigger: a release bumps `pkgver` and the
+  # digests in these files, and that commit landing on main is exactly the
+  # moment the AUR should be updated. Deliberately narrow - a change to
+  # packaging/aur/README.md is documentation and must not publish anything.
+  push:
+    branches: [main]
+    paths:
+      - packaging/aur/PKGBUILD
+      - packaging/aur/.SRCINFO
+      - packaging/aur/*.install
+      - packaging/aur-bin/PKGBUILD
+      - packaging/aur-bin/.SRCINFO
+      - packaging/aur-bin/*.install
+      # This file is deliberately NOT a trigger: editing the pipeline must not
+      # publish anything. Use workflow_dispatch (dry_run defaults to true) to
+      # exercise a change to it.
+  workflow_dispatch:
+    inputs:
+      package:
+        description: "Which package to handle."
+        required: false
+        type: choice
+        default: both
+        options: [both, gibson-screensaver, gibson-screensaver-bin]
+      dry_run:
+        description: "Validate and build, but push nothing."
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+# Two pushes to the same AUR repository must not race each other.
+concurrency:
+  group: aur-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: ${{ matrix.pkgname }}
+    runs-on: ubuntu-latest
+    container:
+      # base-devel carries makepkg, fakeroot and the build tools; `latest` is
+      # deliberate, because the point of this job is to build against current
+      # Arch rather than a pinned snapshot of it.
+      image: archlinux:base-devel
+    strategy:
+      # Independent packages: one failing must not hide the other's result.
+      fail-fast: false
+      matrix:
+        include:
+          - pkgname: gibson-screensaver
+            dir: packaging/aur
+          - pkgname: gibson-screensaver-bin
+            dir: packaging/aur-bin
+    steps:
+      # Skip the half of the matrix the dispatch did not ask for. Expressed as a
+      # step rather than a job-level `if` so the skip is visible in the log.
+      - name: Decide whether this package is in scope
+        id: scope
+        env:
+          WANTED: ${{ github.event_name == 'workflow_dispatch' && inputs.package || 'both' }}
+          PKGNAME: ${{ matrix.pkgname }}
+        run: |
+          set -euo pipefail
+          if [ "$WANTED" = both ] || [ "$WANTED" = "$PKGNAME" ]; then
+            echo "in_scope=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "in_scope=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::$PKGNAME not selected (asked for $WANTED); skipping"
+          fi
+
+      # Before actions/checkout: without git in the image it falls back to
+      # downloading a tarball over the REST API, which is slower and gives no
+      # git metadata. rust supplies the cargo that the source PKGBUILD's
+      # makedepends asks for; namcap is the packaging linter.
+      - name: Install the Arch toolchain
+        if: steps.scope.outputs.in_scope == 'true'
+        run: |
+          set -euo pipefail
+          pacman -Syu --noconfirm --needed git openssh namcap rust
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.scope.outputs.in_scope == 'true'
+
+      # makepkg refuses to run as root, and the container is root. Everything
+      # below therefore happens as `builder` in a directory it owns; the
+      # packaging files are copied there rather than built in place so the
+      # checkout stays pristine.
+      - name: Stage the package as an unprivileged user
+        if: steps.scope.outputs.in_scope == 'true'
+        env:
+          DIR: ${{ matrix.dir }}
+        run: |
+          set -euo pipefail
+          useradd -m builder
+          # makepkg --syncdeps installs the declared dependencies, which needs
+          # pacman, which needs root. The container is thrown away at the end of
+          # the job, so an unrestricted rule for the build user is the simplest
+          # thing that works and cannot outlive it.
+          echo 'builder ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/builder
+          chmod 440 /etc/sudoers.d/builder
+          install -d -o builder -g builder /home/builder/pkg
+          cp "$DIR"/PKGBUILD "$DIR"/.SRCINFO /home/builder/pkg/
+          cp "$DIR"/*.install /home/builder/pkg/ 2>/dev/null || true
+          if [ -f "$DIR/LICENSE" ]; then cp "$DIR/LICENSE" /home/builder/pkg/; fi
+          chown -R builder:builder /home/builder/pkg
+          ls -la /home/builder/pkg
+
+      # Two things a packager can break without noticing, both fatal on the AUR:
+      # a .SRCINFO that no longer matches its PKGBUILD (the AUR reads .SRCINFO
+      # for the web page and the dependency graph, so a stale one misrepresents
+      # the package), and a pkgver that does not match the release this commit
+      # claims to ship.
+      - name: Check .SRCINFO matches the PKGBUILD
+        if: steps.scope.outputs.in_scope == 'true'
+        run: |
+          set -euo pipefail
+          cd /home/builder/pkg
+          sudo -u builder makepkg --printsrcinfo > /tmp/generated.SRCINFO
+          if ! diff -u .SRCINFO /tmp/generated.SRCINFO; then
+            echo "::error::.SRCINFO is stale - regenerate it with 'makepkg --printsrcinfo > .SRCINFO'"
+            exit 1
+          fi
+          echo ".SRCINFO matches"
+
+      - name: Check pkgver matches the workspace version
+        if: steps.scope.outputs.in_scope == 'true'
+        run: |
+          set -euo pipefail
+          # The release tag IS the [workspace.package] version (see
+          # release.yml), and both packages build that tag's artifacts, so the
+          # three have to agree.
+          workspace=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
+          pkgver=$(sed -n 's/^pkgver=//p' /home/builder/pkg/PKGBUILD | head -n 1)
+          echo "workspace=$workspace pkgver=$pkgver"
+          if [ "$workspace" != "$pkgver" ]; then
+            echo "::error::pkgver $pkgver does not match the workspace version $workspace"
+            exit 1
+          fi
+
+      # Downloads every `source` and checks it against `sha256sums`. This is the
+      # check that catches a pkgver bump whose digests were not recomputed, and
+      # a force-retagged tarball whose bytes moved under a digest that did not.
+      - name: Verify the source digests against the published bytes
+        if: steps.scope.outputs.in_scope == 'true'
+        run: |
+          set -euo pipefail
+          cd /home/builder/pkg
+          sudo -u builder makepkg --verifysource
+
+      - name: namcap the PKGBUILD
+        if: steps.scope.outputs.in_scope == 'true'
+        run: |
+          set -euo pipefail
+          cd /home/builder/pkg
+          namcap PKGBUILD | tee /tmp/namcap-pkgbuild.txt
+          # namcap exits 0 even when it reports problems, so the output is the
+          # verdict. Errors fail the job; warnings are printed and allowed,
+          # because several are unavoidable here (every X11/Vulkan library this
+          # binary uses is dlopen()ed, so namcap cannot see any of them and
+          # reports the hand-written depends as possibly unnecessary).
+          if grep -q '^PKGBUILD (.*): E:' /tmp/namcap-pkgbuild.txt; then
+            echo "::error::namcap reported errors on the PKGBUILD"
+            exit 1
+          fi
+
+      # The real build, in a container holding only the declared dependencies.
+      # For the source package this compiles the workspace and runs check();
+      # for -bin it unpacks the release asset. Either way the result is a
+      # package file namcap can inspect.
+      - name: Build the package
+        if: steps.scope.outputs.in_scope == 'true'
+        run: |
+          set -euo pipefail
+          cd /home/builder/pkg
+          sudo -u builder makepkg --noconfirm --syncdeps --force
+          ls -la ./*.pkg.tar.zst
+
+      - name: namcap the built package
+        if: steps.scope.outputs.in_scope == 'true'
+        run: |
+          set -euo pipefail
+          cd /home/builder/pkg
+          # The -debug package is makepkg's own split output, not ours.
+          for p in $(ls ./*.pkg.tar.zst | grep -v -- '-debug-'); do
+            echo "--- $p ---"
+            namcap "$p" | tee -a /tmp/namcap-pkg.txt
+          done
+          if grep -q ': E:' /tmp/namcap-pkg.txt 2>/dev/null; then
+            echo "::error::namcap reported errors on the built package"
+            exit 1
+          fi
+
+      # Proves the thing that actually matters to a user: the file the package
+      # installs runs. There is no GPU and no X server here, so this is the
+      # cheapest honest check - the binary starts, links, and reports itself.
+      # The runtime rendering tests live in ci.yml.
+      - name: Smoke-check the installed binary
+        if: steps.scope.outputs.in_scope == 'true'
+        run: |
+          set -euo pipefail
+          cd /home/builder/pkg
+          pkg=$(ls ./*.pkg.tar.zst | grep -v -- '-debug-' | head -n 1)
+          mkdir -p /tmp/extract
+          tar --zstd -xf "$pkg" -C /tmp/extract usr/bin/gibson-screensaver
+          /tmp/extract/usr/bin/gibson-screensaver --version
+          # The descriptor's basename has to equal the installed executable's,
+          # or xscreensaver-settings cannot find the option sheet.
+          tar --zstd -tf "$pkg" | grep -qx 'usr/share/xscreensaver/config/gibson-screensaver.xml'
+
+      - name: Publish to the AUR
+        if: steps.scope.outputs.in_scope == 'true'
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          PKGNAME: ${{ matrix.pkgname }}
+          # A dispatch decides for itself; a packaging commit on main always
+          # publishes, because that commit exists to be published.
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
+          GIT_NAME: ${{ vars.AUR_GIT_NAME || 'Paul Kiernan' }}
+          GIT_EMAIL: ${{ vars.AUR_GIT_EMAIL || 'paulkiernan1@gmail.com' }}
+          COMMIT_SUBJECT: ${{ github.event.head_commit.message }}
+        run: |
+          set -euo pipefail
+
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "::notice::dry run - validated $PKGNAME and pushed nothing"
+            exit 0
+          fi
+          if [ -z "${AUR_SSH_PRIVATE_KEY:-}" ]; then
+            echo "::notice::AUR_SSH_PRIVATE_KEY is not set - validated $PKGNAME but cannot push. See the setup steps at the top of this workflow."
+            exit 0
+          fi
+
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/aur
+          chmod 600 ~/.ssh/aur
+          # Pinned, not discovered: the host key is checked against the
+          # fingerprint the AUR publishes rather than accepted on first use.
+          cat > ~/.ssh/known_hosts <<'EOF'
+          aur.archlinux.org ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEuBKrPzbawxA/k2g6NcyV5jmqwJ2s+zpgZGZ7tpLIcN
+          EOF
+          chmod 600 ~/.ssh/known_hosts
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/aur -o IdentitiesOnly=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts -o StrictHostKeyChecking=yes"
+
+          # An AUR package that does not exist yet clones as an empty
+          # repository, and the first push is what creates it.
+          git clone "ssh://aur@aur.archlinux.org/$PKGNAME.git" /tmp/aur
+          cd /tmp/aur
+          git config user.name "$GIT_NAME"
+          git config user.email "$GIT_EMAIL"
+
+          # The AUR repository holds only the packaging files. Everything
+          # tracked is replaced so a file removed upstream is removed there too.
+          git rm -rq --ignore-unmatch . 2>/dev/null || true
+          cp /home/builder/pkg/PKGBUILD /home/builder/pkg/.SRCINFO .
+          cp /home/builder/pkg/*.install . 2>/dev/null || true
+          if [ -f /home/builder/pkg/LICENSE ]; then cp /home/builder/pkg/LICENSE .; fi
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "::notice::$PKGNAME on the AUR already matches this commit - nothing to push"
+            exit 0
+          fi
+
+          pkgver=$(sed -n 's/^\tpkgver = //p' .SRCINFO | head -n 1)
+          pkgrel=$(sed -n 's/^\tpkgrel = //p' .SRCINFO | head -n 1)
+          subject=$(printf '%s' "${COMMIT_SUBJECT:-}" | head -n 1)
+          git commit -q -m "$PKGNAME $pkgver-$pkgrel" \
+            -m "From ${GITHUB_REPOSITORY}@${GITHUB_SHA}${subject:+: $subject}"
+          git push origin HEAD:master
+          echo "::notice::pushed $PKGNAME $pkgver-$pkgrel to the AUR"

@@ -14,45 +14,86 @@ tag tarball and installs
 The prebuilt alternative is in [`../aur-bin/`](../aur-bin/) - see
 [the prebuilt package](#the-prebuilt-package-gibson-screensaver-bin) below.
 
-## `.SRCINFO` here is hand-written, and that is a temporary state
+## Publishing is automated
 
-> **WARNING**
-> `packaging/aur/.SRCINFO` and `packaging/aur-bin/.SRCINFO` in this repository
-> were written by hand on macOS, where `makepkg` does not exist. They are
-> *not* authoritative and must not be trusted as generator output. **Before the
-> first push, regenerate them on Arch and commit the result:**
->
-> ```sh
-> makepkg --printsrcinfo > .SRCINFO
-> ```
->
-> **Every later `PKGBUILD` edit that touches a field appearing in `.SRCINFO`
-> requires regenerating it again** (`pkgver`, `pkgrel`, `source`, `sha256sums`,
-> `depends`, `makedepends`, `optdepends`, `provides`, `conflicts`, `pkgdesc`,
-> `arch`, `license`, `install`). A stale `.SRCINFO` is the most common reason an AUR page
-> shows the wrong version, and a `.SRCINFO` that disagrees with the `PKGBUILD`
-> can get a push rejected.
->
-> The hand-written files follow `makepkg`'s own field order (the `singlevalued`
-> and `multivalued` lists in `srcinfo_write_global()` /
-> `srcinfo_write_package()`, `scripts/libmakepkg/srcinfo.sh` in pacman) and
-> expand `$pkgname`/`$pkgver` the way `--printsrcinfo` does, and each one was
-> checked field for field against its `PKGBUILD` - the method is described under
-> [Checking the two files agree](#checking-the-two-files-agree). That makes them
-> equivalent, not authoritative.
+[`.github/workflows/aur.yml`](../../.github/workflows/aur.yml) is the
+publishing path. A commit on `main` that changes a `PKGBUILD`, a `.SRCINFO` or
+an install hook in this directory or `../aur-bin/` makes it:
 
-## What is already done on macOS, and what needs an Arch machine
+1. regenerate `.SRCINFO` with `makepkg --printsrcinfo` and fail if the
+   committed one differs;
+2. check `pkgver` equals the `[workspace.package]` version in `Cargo.toml`,
+   because the release tag is that version and both packages build that tag's
+   artifacts;
+3. run `makepkg --verifysource`, which downloads every `source` and checks it
+   against `sha256sums` - so a `pkgver` bump whose digests were not recomputed
+   fails here;
+4. `namcap` the `PKGBUILD`, build the package, and `namcap` the result;
+5. extract the built package and run the installed binary;
+6. push to `ssh://aur@aur.archlinux.org/<pkgname>.git` only if all of that
+   passed.
 
-| Done here | Still needs an Arch machine |
-| --- | --- |
-| `PKGBUILD` and `.SRCINFO` written and checked against each other | `makepkg --printsrcinfo > .SRCINFO` to replace the hand-written file |
-| `bash -n` parses both `PKGBUILD`s | `makepkg -si`, and a clean-chroot build (`extra-x86_64-build`) |
-| the `source` URL, the tag and the tarball's top-level directory were verified by downloading the tarball | `namcap` on both the `PKGBUILD` and the built package |
-| `sha256sums` is a real measured digest, not `SKIP` (table below) | nothing - the digest is complete |
-| every `depends` entry traced to a `dlopen()` call site in the pinned crate versions and to that package's file list on archlinux.org | confirming `depends` is complete and minimal via `namcap`'s output and a real run |
+It runs in an `archlinux:base-devel` container, which is also the
+clean-environment check this document used to ask a maintainer to do by hand: a
+`depends` entry that is missing fails there instead of passing on a machine that
+happens to have the library installed.
 
-Nothing in this directory can be built here: this machine has no Arch Linux, no
-`pacman` and no `makepkg`.
+`workflow_dispatch` runs the same pipeline with `dry_run` defaulting to true,
+which validates and builds without touching the AUR. Use it to check a
+packaging change before merging it.
+
+The manual runbook below is still the fallback, and still describes what the
+automation does; it is no longer the normal route.
+
+### One-time setup
+
+1. Register at <https://aur.archlinux.org/register>. This account is separate
+   from the Arch Linux BBS/wiki account.
+2. Generate a dedicated key and add the **public** half to the account under
+   My Account -> SSH Public Key:
+
+   ```sh
+   ssh-keygen -t ed25519 -C 'aur-publish@gibson-screensaver (github actions)' -f ~/.ssh/aur_ed25519
+   ```
+
+3. Put the **private** half in this repository's secrets as
+   `AUR_SSH_PRIVATE_KEY`:
+
+   ```sh
+   gh secret set AUR_SSH_PRIVATE_KEY < ~/.ssh/aur_ed25519
+   ```
+
+   Optionally set the `AUR_GIT_NAME` and `AUR_GIT_EMAIL` repository *variables*
+   to control the identity on the AUR-side commits; they default to the
+   maintainer line in the `PKGBUILD`.
+
+Until the secret exists the workflow still validates and builds both packages -
+only the push is skipped, with a notice saying why. The AUR host key is pinned
+in the workflow (`SHA256:RFzBCUItH9LZS0cKB5UE6ceAYhBD5C8GeOBip8Z11+4`), not
+accepted on first use.
+
+## `.SRCINFO` is generated, not hand-written
+
+Both `.SRCINFO` files were originally written by hand on macOS, where `makepkg`
+does not exist. They have since been regenerated on Arch with
+`makepkg --printsrcinfo` and committed, and the diff was confined to the header
+comment and one `pkgdesc` edit - the hand-written files were otherwise byte for
+byte what the generator produces, which is a good result for the method
+described under
+[Checking the two files agree](#checking-the-two-files-agree).
+
+**Every `PKGBUILD` edit that touches a field appearing in `.SRCINFO` requires
+regenerating it** (`pkgver`, `pkgrel`, `source`, `sha256sums`, `depends`,
+`makedepends`, `optdepends`, `provides`, `conflicts`, `pkgdesc`, `arch`,
+`license`, `install`):
+
+```sh
+makepkg --printsrcinfo > .SRCINFO
+```
+
+A stale `.SRCINFO` is the most common reason an AUR page shows the wrong
+version. Forgetting is no longer a way to ship it, though: step 1 of the
+workflow fails the build.
 
 ## Digests recorded in these files
 
@@ -84,11 +125,13 @@ the names are free.
 curl -sS 'https://aur.archlinux.org/rpc/v5/info?arg[]=gibson-screensaver' | python3 -m json.tool
 ```
 
-## The runbook
+## The runbook (fallback: what the workflow automates)
 
+Kept because it documents what [`aur.yml`](../../.github/workflows/aur.yml)
+does, and because it is what to follow if the workflow is ever unavailable.
 Steps 2-5 happen on an **Arch machine** (a VM or a container is fine; it just
-has to have `pacman`, `makepkg` and `devtools`). Step 1 needs only a browser and
-`ssh-keygen`, so it can be done anywhere; step 6 is for users, not for you.
+has to have `pacman`, `makepkg` and `devtools`). Step 1 is the same one-time
+account setup as above; step 6 is for users, not for you.
 
 ### 1. One-time account and SSH key
 
@@ -352,19 +395,31 @@ cp /path/to/repo/packaging/aur/LICENSE .
 
 ## Updating for a new release
 
-In each AUR clone, on Arch:
+Normally nothing is done in an AUR clone at all. The release commit bumps
+`[workspace.package]` in `Cargo.toml`, and a second commit pins the packaging
+to it - which is the commit that triggers the publish:
 
 ```sh
+# in this repository, for each of packaging/aur and packaging/aur-bin:
 # 1. edit pkgver= (and reset pkgrel=1)
-updpkgsums
-makepkg --printsrcinfo > .SRCINFO
-makepkg -si
-git commit -am 'upgpkg: gibson-screensaver 2.1.1-1'
-git push origin master
+updpkgsums                          # re-measures every sha256sum
+makepkg --printsrcinfo > .SRCINFO   # must be regenerated, or CI fails
+git commit -am 'build(packaging): pin every channel to <version>'
+git push                            # main -> the AUR workflow publishes
 ```
 
-`-bin` additionally has a `LICENSE-<pkgver>::` source whose digest
-`updpkgsums` refreshes, and the same `pkgver` edit in two places.
+`updpkgsums` needs the release assets to exist, so this comes *after* the
+release workflow has published them. `-bin` additionally has a
+`LICENSE-<pkgver>::` source whose digest `updpkgsums` refreshes, and the same
+`pkgver` edit in two places.
+
+To publish by hand instead, in each AUR clone on Arch:
+
+```sh
+updpkgsums && makepkg --printsrcinfo > .SRCINFO && makepkg -si
+git commit -am 'upgpkg: gibson-screensaver <version>-1'
+git push origin master
+```
 
 ## Honesty about the Linux host
 

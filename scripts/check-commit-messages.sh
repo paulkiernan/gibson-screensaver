@@ -31,7 +31,7 @@
 set -u
 
 ALLOWED_TYPES="feat fix docs style refactor perf test build ci chore revert"
-ALLOWED_SCOPES="types scene atlas floor render core app web ffi macos linux windows ci docs"
+ALLOWED_SCOPES="types scene atlas floor render core app web ffi macos linux windows packaging ci docs"
 MAX_COLUMNS=72
 
 checked=0

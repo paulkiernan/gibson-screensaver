@@ -4,7 +4,7 @@
 #
 # type     feat fix docs style refactor perf test build ci chore revert
 # scope    types scene atlas floor render core app web ffi
-#          macos linux windows ci docs
+#          macos linux windows packaging ci docs
 #          (omit the scope when the change is genuinely repo-wide)
 # subject  imperative mood, lower case, no trailing period, 72 columns or fewer
 #
