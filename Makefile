@@ -18,7 +18,7 @@ DEV_DEBUG := line-tables-only
 # when that is not origin/main, e.g. `make commits BASE=origin/release`.
 BASE ?= origin/main
 
-.PHONY: help app snapshot web saver install-saver uninstall-saver check test fmt fmt-check lint lint-wasm commits clean
+.PHONY: help app snapshot web saver install-saver uninstall-saver smoke-linux daemon-linux check test fmt fmt-check lint lint-wasm commits clean
 
 help:
 	@echo "Hack the Gibson - make targets:"
@@ -29,6 +29,11 @@ help:
 	@echo "  make saver            Build platform/macos/build/Gibson.saver"
 	@echo "  make install-saver    Build, then copy the saver to ~/Library/Screen Savers"
 	@echo "  make uninstall-saver  Remove the installed saver"
+	@echo "  make smoke-linux      Build, then run the xscreensaver host against a real X window"
+	@echo "                        (both launch paths; needs \$$DISPLAY, a C compiler and a Vulkan"
+	@echo "                        driver) - what CI runs under Xvfb"
+	@echo "  make daemon-linux     Build, then run the real xscreensaver daemon against the hack"
+	@echo "                        in a nested X server (needs xscreensaver + Xephyr)"
 	@echo "  make check            The tests to run before a pull request:"
 	@echo "                          CARGO_PROFILE_DEV_DEBUG=$(DEV_DEBUG) \\"
 	@echo "                            cargo test --workspace --exclude gibson-web"
@@ -62,6 +67,16 @@ install-saver:
 
 uninstall-saver:
 	$(MAKE) -C platform/macos uninstall
+
+# The two Linux runtime tests. Both build first: they execute the release binary,
+# and a stale target/ would test the wrong thing. See platform/linux/README.md.
+smoke-linux:
+	cargo build --release -p gibson-app
+	bash platform/linux/smoke-test.sh target/release/gibson-app
+
+daemon-linux:
+	cargo build --release -p gibson-app
+	bash platform/linux/xscreensaver-daemon-test.sh target/release/gibson-app
 
 # The command contributors should run before opening a pull request. Identical
 # to `test` apart from the debuginfo setting; see DEV_DEBUG at the top.
