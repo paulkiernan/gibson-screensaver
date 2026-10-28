@@ -57,7 +57,7 @@ jobs:
           rustup show active-toolchain
           cargo --version
           cargo clippy --version
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       # No `-- -D warnings`: [workspace.lints] already denies clippy::all and rustc's
       # unused group, so this fails on a warning by itself.
       - name: Check formatting
@@ -120,7 +120,7 @@ jobs:
       fail-fast: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - name: Run tests
         run: cargo test --workspace --exclude gibson-web
       # The saver Makefile parses `cargo rustc --print native-static-libs`
@@ -137,7 +137,7 @@ jobs:
           zip -rq Gibson.saver.zip Gibson.saver
           shasum -a 256 Gibson.saver.zip > SHA256SUMS
           cat SHA256SUMS
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: Gibson.saver.zip
           path: |
@@ -154,7 +154,7 @@ jobs:
       fail-fast: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       # No gibson-render (no GPU adapter on hosted runners; its tests only
       # self-skip anyway) and no gibson-web (wasm-only crate) on native hosts.
       - name: Run tests
@@ -164,7 +164,7 @@ jobs:
       - name: Stage .scr
         shell: pwsh
         run: Copy-Item target/release/gibson-app.exe Gibson.scr
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: Gibson.scr
           path: Gibson.scr
@@ -187,7 +187,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libx11-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       # Same native test set as Windows: no gibson-render, no gibson-web.
       - name: Run tests
         run: cargo test -p gibson-scene -p gibson-atlas -p gibson-floor -p gibson-app
@@ -214,7 +214,7 @@ jobs:
           vulkaninfo --summary || true
           xvfb-run -a -s "-screen 0 800x600x24" \
             bash platform/linux/smoke-test.sh target/release/gibson-app
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: gibson-app
           path: target/release/gibson-app
@@ -229,7 +229,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Add wasm32 target
         run: rustup target add wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       # Prebuilt binary from the official wasm-pack GitHub release (matches the
       # v0.15.0 the project develops against) instead of `cargo install`, which
       # would rebuild it from source on every run. Digest verified before use.
@@ -242,7 +242,7 @@ jobs:
           echo "$PWD/wasm-pack-v0.15.0-x86_64-unknown-linux-musl" >> "$GITHUB_PATH"
       - name: Build web bundle
         run: wasm-pack build crates/gibson-web --target web --release --out-dir ../../web/pkg
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: web
           path: web
